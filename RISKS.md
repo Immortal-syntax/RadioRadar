@@ -55,14 +55,15 @@ Building a real-time internet radio advertisement detection platform on free-tie
   **Acoustic-only classifiers cannot achieve 99% accuracy across diverse radio genres.** Claims of near-perfect ad detection using basic acoustic features alone are scientifically invalid.
 - **Decomposition of Detection Latencies**:
   Claims of "instantaneous" detection are misleading. The actual latency budget consists of four distinct phases:
-  1. *Audio Analysis Window (2.5s)*: The duration of raw PCM audio required to compute one representative feature vector.
-  2. *Prediction Interval (0.75s)*: The hop step at which the sliding window advances and inference executes.
-  3. *State Stabilization Delay (3.0 to 4.5s)*: The duration of sustained probabilistic consensus required by the hysteresis filter to confirm a state change and eliminate UI flickering.
-  4. *Actual Detection Latency (6.0 to 12.0+ seconds)*: The true end-to-end duration from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected`. This combines broadcast ingestion latency (1-3s), network jitter buffering (1-2s), window accumulation (2.5s), and hysteresis confirmation (3-4.5s).
+  1. *Audio Analysis Window (2.50s)*: The duration of contiguous raw PCM audio required to compute one representative 32-dim feature vector `[VERIFIED FACT]`.
+  2. *Prediction Interval (0.75s)*: The hop cadence at which the sliding window advances (70% frame overlap) `[VERIFIED FACT]`.
+  3. *Prediction Buffer Span (6 Frames)*: A 6-prediction buffer covers **6.25 seconds of continuous broadcast audio** across $3.75\text{ seconds}$ of elapsed prediction steps `[VERIFIED FACT]`. It must not be confused with 6 seconds of elapsed time.
+  4. *State Stabilization Delay (2.25 to 3.0s)*: The duration of sustained probabilistic consensus ($\ge 4$ agreeing frames) required by the hysteresis filter to confirm a state change `[ENGINEERING ESTIMATE]`.
+  5. *Actual Detection Latency (~7.8 to 11.6+ seconds)*: The true end-to-end duration from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected` `[UNMEASURED HYPOTHESIS]`. This sums stream server buffering (2-4s), network transit/pipe (1-2s), window accumulation (2.5s), and stabilization confirmation (2.25-3.0s).
 - **Architectural Mitigations**:
   1. **Explicit "Uncertain" State**: When model confidence falls into the ambivalent range ($0.35 \le P \le 0.70$), the system emits `Uncertain` rather than oscillating between `Ad` and `No Ad`.
-  2. **Multi-Frame Hysteresis State Machine**: Single-frame predictions are prohibited from triggering UI state transitions. Hysteresis requires consensus across $\ge 3$ consecutive seconds.
-  3. **Transparent Latency Reporting**: Document the realistic 6-12+ second detection latency to set accurate user expectations.
+  2. **Multi-Frame Hysteresis State Machine**: Single-frame predictions are prohibited from triggering UI state transitions. Hysteresis requires consensus across $\ge 4$ consecutive predictions ($2.25\text{s}$ elapsed delay).
+  3. **Transparent Latency Reporting**: Document the realistic 7.8–11.6+ second detection latency to set accurate user expectations.
 
 ---
 
@@ -70,24 +71,24 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Severity**: **High**
 - **Probability**: **High**
 - **Root Cause**:
-  There are no standardized, open-source, multi-lingual audio datasets specifically labeled for live internet radio advertisements across languages like Hindi, Spanish, French, and English. Commercial automated content recognition (ACR) vendors maintain proprietary audio fingerprint databases that are unavailable to open-source student projects.
+  There are no standardized, open-source audio datasets specifically labeled for live radio advertisements across English or Hindi `[VERIFIED FACT]`. Commercial automated content recognition (ACR) vendors maintain proprietary audio fingerprint databases that are unavailable to open-source student projects.
   Furthermore, selecting model hyperparameters (e.g. Random Forest with 50 estimators, max depth 10) in advance without empirical validation is methodologically invalid.
 - **Brutal Reality**:
   **Model accuracy cannot be assumed, and datasets cannot be fabricated.** Initial Random Forest configurations are merely an illustrative starting baseline, not a finalized design.
 - **Architectural Mitigations**:
-  1. **Strict Train / Validation / Test Separation**:
-     Partition the audio corpus by station and broadcast date (stratified by language) to prevent data leakage between training and testing sets.
+  1. **Station-Level GroupKFold Validation**:
+     Evaluate models using 5-fold GroupKFold cross-validation grouped strictly by `station_id` to prevent station-specific acoustic profile leakage across splits.
   2. **Baseline Model Comparisons**:
      Evaluate the primary model against:
      - Majority-class / Dummy classifier (lower bound).
      - Regularized Logistic Regression (linear baseline).
-     - Tree-based models (Random Forest, Gradient Boosted Trees).
+     - Tree-based models (Random Forest, HistGradientBoosting).
   3. **Comprehensive Metric Reporting**:
      Evaluate using precision, recall, macro F1-score, and full confusion matrices, with specific breakdown for speech vs. commercial confusion.
   4. **Per-Language Evaluation**:
-     Assess performance separately on English, Hindi, and Spanish broadcast samples to measure cross-lingual acoustic generalization.
+     Assess performance separately on English and Hindi/Hinglish broadcast samples to measure acoustic generalization independently.
   5. **Systematic False-Positive Analysis**:
-     Specifically evaluate false positive rates on pure speech datasets (talk radio, news, podcasts) to measure speech-to-ad confusion.
+     Specifically evaluate false positive rates on pure speech datasets (talk radio, news bulletins) to measure speech-to-ad confusion.
 
 ---
 
@@ -157,9 +158,11 @@ Building a real-time internet radio advertisement detection platform on free-tie
      Having the user's browser connect directly to the radio station's official stream URL avoids routing audio bytes through RadioRadar servers, substantially reducing copyright redistribution exposure. However, **this does NOT grant automatic, blanket, or complete legal or DMCA immunity**.
   2. **Station Terms of Service & Hotlinking**:
      Broadcasters and stream CDNs may have terms of service prohibiting hotlinking, unauthorized inline embedding, or automated content monitoring. Providers may enforce referrer checks or geoblocking.
-  3. **Transient Analysis vs. Fair Use**:
-     Ephemeral in-memory analysis of broadcast telemetry for metadata extraction aligns with transformative fair-use principles in several jurisdictions, but copyright statutes vary internationally.
-  4. **Need for Legal Review**:
+  3. **Broadcast Reproduction Rights & Indian / International Law**:
+     In India, Section 37 of the Copyright Act, 1957 grants broadcasters a special Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Section 52 fair dealing exemptions are strictly statutory and narrow. While transient in-memory analysis avoids creating persistent disk copies, automated recording and analysis of live broadcast signals without a license carries legal uncertainty under regional broadcast laws.
+  4. **Dataset Redistribution Prohibitions**:
+     RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files (`.wav` or `.mp3`). Only derived, non-reconstructible numerical feature matrices and annotation metadata may be shared for academic reproducibility.
+  5. **Need for Legal Review**:
      Prior to any commercial deployment or public scaling beyond educational research, a formal legal review is required.
 
 ---

@@ -65,16 +65,18 @@ graph LR
 ## ⏱️ Latency Budget Breakdown
 
 Detection is not instantaneous; the operational end-to-end latency consists of:
-1. **Audio Analysis Window**: 2.5 seconds of raw audio per frame.
-2. **Prediction Interval**: 0.75 seconds between inference steps.
-3. **State Stabilization Delay**: 3.0 to 4.5 seconds of sustained agreement to prevent UI flickering.
-4. **Actual Detection Latency**: **6 to 12+ seconds total** from broadcast transition to UI notification, accounting for stream buffering and network transit.
+1. **Audio Analysis Window**: 2.50 seconds of contiguous raw PCM audio per frame `[VERIFIED FACT]`.
+2. **Prediction Interval**: 0.75 seconds between inference steps (70% frame overlap) `[VERIFIED FACT]`.
+3. **Prediction Buffer Span**: 6-prediction buffer covers **6.25 seconds of continuous audio** across $3.75\text{s}$ of elapsed prediction steps `[VERIFIED FACT]`.
+4. **State Stabilization Delay**: 2.25 to 3.0 seconds of sustained consensus ($\ge 4$ agreeing frames) to prevent UI flickering `[ENGINEERING ESTIMATE]`.
+5. **Actual Detection Latency**: **~7.8 to 11.6+ seconds total** from broadcast transition to UI notification, accounting for stream buffering, ingestion pipes, and network transit `[UNMEASURED HYPOTHESIS]`.
 
 ---
 
 ## ⚖️ Legal, Copyright & Licensing Notes
 
-- **Reduced Redistribution Exposure**: Audio is not proxied, transcoded, or archived on RadioRadar servers; clients connect directly to public origin streams. However, this does not grant blanket legal immunity. Broadcaster terms of service, hotlinking restrictions, and local copyright regulations apply.
+- **Reduced Redistribution Exposure**: Audio is not proxied, transcoded, or archived on RadioRadar servers; clients connect directly to public origin streams. However, this does not grant blanket legal immunity. Broadcaster terms of service, hotlinking restrictions, and broadcast reproduction rights (e.g. Section 37 of the Indian Copyright Act, 1957) apply.
+- **Dataset Redistribution Prohibition**: RadioRadar will never publicly redistribute raw recorded broadcast audio files. Only non-reconstructible numerical features and metadata may be shared for academic reproducibility.
 - **Transformative Research**: Transient in-memory audio feature extraction is designed for analytical metadata generation. A formal legal review is required prior to commercial scaling.
 - **Software License**: This open-source software is licensed under the [MIT License](LICENSE).
 

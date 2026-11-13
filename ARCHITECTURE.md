@@ -179,21 +179,28 @@ The original proposal suggested `librosa`. **Librosa is strictly unsuitable for 
 3. Feature extraction can be performed with **standard NumPy and SciPy.signal** in fewer than 150 lines of clean, vectorised code with zero Numba overhead.
 
 #### Explicit Decomposition of Detection Latencies
-To prevent misleading claims regarding "real-time" performance, the architectural latency is decomposed into four distinct parameters:
+To prevent misleading claims regarding "real-time" performance, the architectural latency is decomposed into distinct parameters:
 
-| Latency Parameter | Definition | Nominal Duration | Operational Significance |
+| Latency Parameter | Definition | Nominal Value | Operational Significance |
 |---|---|---|---|
-| **Audio Analysis Window** | The duration of raw PCM audio required to compute one feature vector. | **2.5 seconds** | Sets the minimum chunk size necessary for representative spectral and MFCC computation. |
-| **Prediction Interval** | The cadence at which the sliding window advances and the classifier executes inference. | **0.75 seconds** | Determines CPU computation frequency (hop length: 1.75s overlap between consecutive windows). |
-| **State Stabilization Delay** | The duration of sustained probabilistic consensus required by the hysteresis filter to confirm a state change. | **3.0 to 4.5 seconds** | Eliminates rapid UI flickering; requires multiple consecutive agreeing frames before changing state. |
-| **Actual Detection Latency** | **Total end-to-end elapsed time** from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected`. | **6.0 to 12.0+ seconds** | Sums stream server buffering (1-3s), network transit/jitter (1-2s), window accumulation (2.5s), and stabilization confirmation (3-4.5s). |
+| **Audio Analysis Window ($W$)** | The duration of raw PCM audio required to compute one feature vector. | **2.50 seconds** `[VERIFIED FACT]` | Sets the minimum chunk size necessary for representative spectral and MFCC computation. |
+| **Prediction Interval ($H$)** | The cadence at which the sliding window advances and the classifier executes inference. | **0.75 seconds** `[VERIFIED FACT]` | Hop step with 1.75s overlap (70%) between consecutive frames. |
+| **Prediction Buffer Span ($K=6$)** | Total continuous audio time covered across the 6-prediction ring buffer: $W + (K-1) \times H = 2.5 + 5 \times 0.75$. | **6.25 seconds** `[VERIFIED FACT]` | Elapsed wall-clock time between 1st and 6th prediction is $3.75\text{s}$. (Never confuse with 6s of elapsed time). |
+| **State Stabilization Delay** | The duration of sustained probabilistic consensus ($\ge 4$ agreeing predictions) required to confirm a state change. | **2.25 to 3.0 seconds** `[ENGINEERING ESTIMATE]` | Eliminates rapid UI flickering; requires multiple consecutive agreeing frames before changing state. |
+| **Actual Detection Latency** | **Total end-to-end elapsed time** from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected`. | **~7.8 to 11.6+ seconds** `[UNMEASURED HYPOTHESIS]` | Sums stream server buffering (2-4s), network transit/jitter (1-2s), window accumulation (2.5s), and stabilization confirmation (2.25-3.0s). |
 
-#### Feature Vector Structure (32 Dimensions per 2.5s Frame):
-1. **RMS Energy & Dynamic Range**: Measures loudness compression (commercials typically show compressed crest factors and elevated sustained RMS).
-2. **Zero Crossing Rate (ZCR) & Variance**: Differentiates unvoiced speech/fricatives, voiced speech, and continuous harmonic music.
-3. **Spectral Centroid, Rolloff, & Flatness**: Tracks spectral brightness and noise vs. tonal balance.
-4. **13 Mel-Frequency Cepstral Coefficients (MFCCs)**: Computed via a static Mel filter bank in NumPy.
-5. **Silence & Micro-pause Density**: Identifies boundary silences ($150\text{ms} - 350\text{ms}$) characteristic of radio station commercial insertions.
+#### Explicit Acoustic Feature Vector (Exact 32 Dimensions):
+Every scalar feature in the 32-dimensional vector is explicitly defined:
+1. **Static MFCCs (Indices 0–12, 13 features)**: 13 Mel-Frequency Cepstral Coefficients ($c_0$ to $c_{12}$) computed via DCT over 26 Mel filter banks `[VERIFIED FACT]`.
+2. **Delta MFCCs (Indices 13–25, 13 features)**: 13 First-order temporal derivatives of MFCCs measuring dynamic rate of change `[VERIFIED FACT]`.
+3. **Log RMS Energy (Index 26, 1 feature)**: Logarithmic short-term signal energy measuring broadcast dynamic compression `[VERIFIED FACT]`.
+4. **Zero-Crossing Rate (Index 27, 1 feature)**: Average sign-change rate per frame separating unvoiced speech from harmonic tones `[VERIFIED FACT]`.
+5. **Spectral Centroid (Index 28, 1 feature)**: Center of spectral mass measuring audio brightness `[VERIFIED FACT]`.
+6. **Spectral Rolloff (Index 29, 1 feature)**: Frequency below which 85% of spectral magnitude concentrates `[VERIFIED FACT]`.
+7. **Spectral Flatness (Index 30, 1 feature)**: Wiener entropy ratio of power spectrum measuring tonality vs. noise `[VERIFIED FACT]`.
+8. **Micro-Pause Ratio (Index 31, 1 feature)**: Fraction of 50ms sub-frames with energy $< -30\text{ dBFS}$ `[VERIFIED FACT]`.
+
+$$\text{Total Feature Vector Dimension} = 13 + 13 + 1 + 1 + 1 + 1 + 1 + 1 = \mathbf{32\text{ scalar features}} \quad \text{[VERIFIED FACT]}$$
 
 ---
 
@@ -232,18 +239,18 @@ graph LR
      * Majority-class / Dummy classifier (lower-bound sanity check).
      * Regularized Logistic Regression (minimal CPU/memory footprint).
      * Random Forest vs. Gradient Boosted Trees (LightGBM/HistGradientBoosting).
-   - *Dataset Requirements:* A verified, manually labeled radio audio dataset must be collected across targeted languages (English, Hindi, Spanish) before training.
-   - *Evaluation Rigor:* Models must be evaluated on a strict **train / validation / test split** (stratified by station and language to prevent data leakage) reporting:
+   - *Dataset Requirements:* A verified, manually labeled radio audio dataset must be collected across functional target languages (**English**, **Hindi**) before training. Conceptual UI languages (**Tamil**, **Kannada**, **Punjabi**) have zero ML models and zero detection claims.
+   - *Evaluation Rigor:* Models must be evaluated using **GroupKFold cross-validation grouped strictly by station ID** (to prevent station-level acoustic leakage) reporting:
      * Precision, Recall, and F1-score (macro and per-class).
      * Confusion matrices highlighting speech vs. commercial confusion.
-     * Per-language evaluation to measure cross-lingual acoustic generalization.
+     * Per-language evaluation to measure cross-lingual acoustic generalization independently on English and Hindi.
      * Systematic false-positive analysis on talk-radio and news broadcasts.
    - *Zero Fabrication Rule:* No accuracy figures or dataset statistics may be fabricated or claimed without empirical validation.
 3. **Tier 3: Temporal Smoothing & Hysteresis State Machine**:
-   - A ring buffer holds the last 6 frame probabilities ($4.5\text{ seconds}$).
+   - A ring buffer holds the last 6 frame probabilities (covering **6.25 seconds of cumulative broadcast audio** across $3.75\text{ seconds}$ of elapsed prediction steps).
    - **Hysteresis Logic**:
-     * Transition to `Advertisement detected`: Requires weighted probability $> 0.70$ sustained across $\ge 3$ consecutive seconds.
-     * Transition to `No advertisement detected`: Requires probability $< 0.35$ sustained across $\ge 3$ consecutive seconds.
+     * Transition to `Advertisement detected`: Requires weighted probability $> 0.70$ sustained across $\ge 4$ consecutive predictions ($2.25\text{s}$ elapsed delay).
+     * Transition to `No advertisement detected`: Requires probability $< 0.35$ sustained across $\ge 4$ consecutive predictions.
      * `Uncertain`: When probability hovers in the ambivalent zone ($0.35 \le P < 0.70$) or during DJ speech over background music.
      * `Analyzing`: Initial state during the first 5 seconds of stream connection while the circular buffer populates.
 
@@ -263,11 +270,12 @@ RadioRadar does not proxy, transcode, or syndicate live audio streams to clients
 2. **Broadcaster Terms of Service & Hotlinking**:
    - Individual radio stations and stream content delivery networks (CDNs) may maintain terms of service restricting unauthorized embedding, inline linking ("hotlinking"), or automated monitoring of their stream endpoints.
    - Stream providers may employ geoblocking or session-based referrer checks to prevent external clients from connecting directly.
-3. **Transient Processing & Fair Use**:
-   - Ephemeral in-memory analysis of broadcast telemetry for metadata extraction (detecting ad segments) aligns with fair-use and transformative research principles in several jurisdictions.
-   - However, copyright laws, moral rights, and broadcasting regulations vary internationally.
+3. **Broadcast Reproduction Rights & Indian / International Law**:
+   - In India, Section 37 of the Copyright Act, 1957 grants broadcasters a special Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Section 52 fair dealing exemptions are strictly statutory and narrower than US common-law fair use.
+   - While transient in-memory feature extraction avoids creating persistent copies on disk, automated recording and analysis of live broadcast signals without a license carries legal uncertainty under regional broadcast laws.
+   - RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files.
 4. **Requirement for Formal Legal Review**:
-   - Prior to any commercial operation, production scaling, or public distribution beyond educational research, RadioRadar requires formal legal review regarding DMCA safe-harbor compliance, local broadcasting rights, and station terms of service.
+   - Prior to any commercial operation, production scaling, or public distribution beyond educational research, RadioRadar requires formal legal review regarding DMCA safe-harbor compliance, Indian Section 37 broadcast rights, and station terms of service.
 
 ---
 

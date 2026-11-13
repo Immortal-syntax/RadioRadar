@@ -153,12 +153,12 @@ gantt
 ### Milestone 4: Ad Classifier, Hysteresis Filter & State Machine
 - **Objective**: Establish the machine learning evaluation pipeline, train an initial baseline model against defined comparisons, and implement temporal hysteresis.
 - **Features**:
-  - Documented protocol for audio sample collection across targeted languages (English, Hindi, Spanish).
-  - Train / validation / test data separation (stratified by station and language).
-  - Baseline model comparisons: Majority-class baseline, Logistic Regression, and Random Forest / Gradient Boosting.
-  - Moving-window probability buffer (last 6 frames) with asymmetric hysteresis thresholds.
+  - Documented protocol for audio sample collection across functional target languages (**English**, **Hindi**), treating **Tamil**, **Kannada**, and **Punjabi** strictly as conceptual UI placeholders.
+  - GroupKFold cross-validation grouped strictly by station ID (preventing station-level and temporal overlap leakage).
+  - Baseline model comparisons: Majority-class baseline, Logistic Regression, and Random Forest / HistGradientBoosting.
+  - Moving-window probability buffer (last 6 frames covering 6.25s audio span across 3.75s step time) with asymmetric hysteresis thresholds.
   - Explicit 5-state lifecycle management (`Advertisement detected`, `No advertisement detected`, `Analyzing`, `Uncertain`, `Unavailable`).
-  - Distinction between state stabilization delay (3.0-4.5s) and actual end-to-end detection latency (6.0-12.0+s).
+  - Distinction between state stabilization delay (2.25-3.0s) and actual end-to-end detection latency (~7.8-11.6+ s).
 - **Files / Modules Involved**:
   - `backend/app/ml/classifier.py` (Model loader and inference wrapper)
   - `backend/app/ml/hysteresis.py` (Temporal smoothing and state transitions)
