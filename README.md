@@ -9,8 +9,8 @@
 **RadioRadar** is an open-source platform designed to monitor live internet radio streams and detect commercial advertisements in near real-time. Built to explore resource-efficient audio processing on free-tier cloud infrastructure, RadioRadar implements a shared per-station monitoring architecture: multiple users monitoring the same station share a single backend ingestion and inference worker, eliminating redundant processing and network bandwidth.
 
 ### Key Capabilities
-- 🌐 **Global Station Catalog by Language**: Discover and filter internet radio streams categorized across global languages (English, Hindi, Spanish, French, German, and more) backed by a rebuildable cache.
-- 🎛️ **Multi-Stream Monitoring**: Support for selecting and monitoring up to 3 stations simultaneously (subject to empirical system resource benchmarking).
+- 🌐 **Global Station Catalog by Language**: Discover and filter internet radio streams categorized by language backed by a rebuildable cache. Functional ML ad detection is targeted exclusively at **English** and **Hindi**. Conceptual UI placeholder categories include **Tamil**, **Kannada**, and **Punjabi**.
+- 🎛️ **Multi-Stream Monitoring**: Initial operational target of **1 active stream** for the MVP prototype on Render Free Tier (with a design ceiling of up to 3 streams subject to empirical CPU/RAM benchmarking).
 - 🔄 **Shared Ingestion Architecture**: A single background worker serves all active listeners of a station, conserving CPU and bandwidth.
 - 📊 **Deterministic Monitoring States**:
   - 🔴 **Advertisement detected**
@@ -24,11 +24,13 @@
 
 ## 📚 Architectural & Planning Documentation
 
-Before writing code, RadioRadar has undergone a comprehensive architectural planning and feasibility audit:
+Before writing code, RadioRadar has undergone a comprehensive architectural planning, dataset research, and feasibility audit:
 
 - 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md): Complete system blueprint, data flow diagrams, unverified resource estimates, FFmpeg ingestion pipeline, latency decomposition, and WebSocket protocols.
 - 🗺️ [**ROADMAP.md**](./ROADMAP.md): Step-by-step development roadmap divided into independently testable milestones (M0 through M7) with empirical measurement completion criteria.
 - ⚠️ [**RISKS.md**](./RISKS.md): Brutally realistic technical risk assessment covering Render 512MB RAM / 0.1 CPU constraints, acoustic ML ambiguity, stream dropouts, dataset scarcity, and legal/licensing considerations.
+- 🔬 [**DATASET_RESEARCH.md**](./DATASET_RESEARCH.md): Exhaustive empirical survey of 10 audio/speech/broadcast datasets, verification of zero public radio ad datasets, English and Hindi availability analysis, and the **RadioRadar-10h** data collection protocol.
+- 🧠 [**ML_EXPERIMENT_PLAN.md**](./ML_EXPERIMENT_PLAN.md): Technical comparison of 8 machine learning approaches, feature extraction specifications, multi-stage hybrid pipeline architecture, station-level split validation protocol, and Render free-tier compute budgeting.
 
 ---
 

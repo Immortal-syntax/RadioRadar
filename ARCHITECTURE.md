@@ -5,8 +5,8 @@
 **RadioRadar** is an open-source, resource-conscious platform designed to monitor live internet radio streams and detect commercial advertisements in near real-time.
 
 The system addresses four primary operational requirements:
-1. **Multi-station Language Catalog**: Discover and categorize radio stations across global languages (e.g., English, Hindi, Spanish, French, German).
-2. **Concurrent Monitoring**: Enable users to select and monitor up to 3 streams simultaneously (subject to empirical system resource benchmarking).
+1. **Multi-station Language Catalog**: Discover and categorize radio stations by language. **Functional ML ad detection is targeted exclusively at English and Hindi**. Conceptual UI placeholder categories include **Tamil, Kannada, and Punjabi** (for frontend catalog browsing without active ML models).
+2. **Concurrent Monitoring**: Initial operational target of **1 active stream** for the MVP prototype on Render Free Tier, with a design ceiling of up to 3 streams subject to empirical CPU/RAM benchmarking.
 3. **Shared Ingestion Architecture**: Aggregate multiple listeners monitoring the same station into a single backend processing worker, eliminating redundant network bandwidth and CPU/RAM decoding.
 4. **Deterministic State Output**: Expose five explicit monitoring states:
    - `Advertisement detected`
@@ -69,7 +69,7 @@ graph TD
 - **Resilience, Fallbacks & Validation**:
   - *Strict Request Timeouts*: All outbound API requests to Radio Browser mirrors are configured with a strict 5.0-second timeout.
   - *Retry Limits & Circuit Breaker*: A maximum of 2 retries with exponential backoff. If external mirrors are unreachable, the catalog service trips a circuit breaker and serves solely from the local seed cache.
-  - *Static Bundled Seed*: The application bundles a pre-verified, high-uptime static JSON dataset covering top global languages (English, Hindi, Spanish, French, German). The service initializes immediately from this seed without waiting for external network calls.
+  - *Static Bundled Seed*: The application bundles a pre-verified static JSON dataset covering functional languages (**English**, **Hindi**) and conceptual placeholder languages (**Tamil**, **Kannada**, **Punjabi**). The service initializes immediately from this seed without waiting for external network calls.
   - *Stream URL Validation*: All stream URLs returned by external sources are validated against an allowlist of supported audio schemes (`http://`, `https://`) and verified to block Server-Side Request Forgery (SSRF) targeting loopback (`127.0.0.1`), link-local (`169.254.169.254`), or private network spaces (`10.0.0.0/8`, `192.168.0.0/16`).
 
 #### Storage Layer: Rebuildable SQLite Cache
@@ -136,7 +136,7 @@ sequenceDiagram
 ```
 
 #### Ingestion Constraints & Lifecycle:
-1. **Concurrency Cap**: Up to **3 concurrent active station workers** across the backend. Because running 3 simultaneous streams on a 0.1 vCPU / 512MB RAM environment is an unverified hypothesis, this cap is subject to empirical load testing during Milestone 2. If a 4th unique station is requested:
+1. **Concurrency Cap**: **1 active station worker as the initial operational target for the MVP prototype** on Render Free Tier (with a design ceiling of up to 3 concurrent streams subject to empirical load and CPU benchmarking in Milestone 2). If capacity is reached:
    - Stations with 0 active subscribers are immediately culled.
    - If all 3 slots have active subscribers, the backend returns a clean status code `SYSTEM_CAPACITY_REACHED` with human-readable messaging.
 2. **Subscriber Reference Counting**:

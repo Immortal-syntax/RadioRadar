@@ -109,19 +109,22 @@ Building a real-time internet radio advertisement detection platform on free-tie
 
 ---
 
-### R-05: Language-Dependent Advertising Characteristics
+### R-05: Language-Dependent Advertising Characteristics & Scope Creep
 - **Severity**: **Medium**
 - **Probability**: **Medium**
 - **Root Cause**:
   Commercial broadcast pacing, pitch intonation, and jingle density vary markedly across cultures and languages:
   - English radio ads frequently employ rapid conversational dialogue with compressed dynamic range.
   - Hindi radio ads often feature prominent melodic jingles, high-frequency vocal modulation, and bilingual code-switching (Hinglish).
-  - European public radio stations (e.g., French, German) often have strict statutory limits on ad volume compression and use distinct chimes before commercial breaks.
-- **Architectural Mitigations**:
-  1. **Focus on Language-Agnostic Acoustic Markers**:
+  - Attempting to claim multi-lingual advertisement detection without verified datasets creates scientific and operational invalidity.
+- **Architectural Mitigations & Strict Language Boundaries**:
+  1. **Strict Separation of Functional vs. Conceptual Languages**:
+     - **Functional ML Languages**: **English** and **Hindi** are the sole targets for ML training, feature extraction, and advertisement detection.
+     - **Conceptual / Dummy Languages**: **Tamil**, **Kannada**, and **Punjabi** exist solely as frontend catalog UI placeholders to validate language-grouping navigation. They have zero ML models and zero detection claims.
+  2. **Unified Hinglish Classification**:
+     Treat code-switched Hindi-English advertisements as a single unified `ADVERTISEMENT` class, relying on shared Indian FM broadcast training slices rather than attempting language decoupling.
+  3. **Focus on Language-Agnostic Acoustic Markers**:
      Base the MVP model on acoustic properties that transcend language: spectral contrast, voice-to-harmonic music transitions, micro-silence boundaries, and dynamic range compression.
-  2. **Station-Language Metadata Association**:
-     Group stations by language in the database. When training data is expanded, allow language-specific model weights to be loaded per station group.
 
 ---
 

@@ -47,24 +47,28 @@ gantt
 
 ## Detailed Milestone Specifications
 
-### Milestone 0: Architecture, Setup & Planning (Current)
+### Milestone 0: Architecture, Setup & Planning (Completed)
 - **Objective**: Establish complete technical specifications, feasibility studies, risk mitigations, repository structure, and CI/CD foundations.
 - **Features**:
   - Architectural blueprint (`ARCHITECTURE.md`).
   - Milestone roadmap with MVP bounds (`ROADMAP.md`).
   - Technical risk register (`RISKS.md`).
+  - Dataset research and data strategy (`DATASET_RESEARCH.md`).
+  - Machine learning experiment plan and approach comparison (`ML_EXPERIMENT_PLAN.md`).
   - Git repository initialization and verified GitHub remote linkage.
 - **Files / Modules Involved**:
   - `ARCHITECTURE.md`
   - `ROADMAP.md`
   - `RISKS.md`
+  - `DATASET_RESEARCH.md`
+  - `ML_EXPERIMENT_PLAN.md`
   - `.gitignore`
   - `README.md`
   - `LICENSE`
 - **Dependencies**: None.
 - **Testing Requirements**: Git status verification; markdown syntax and documentation consistency checks.
 - **Completion Criteria**: Complete, unambiguous documentation committed to repository and pushed to GitHub remote.
-- **Risks**: Architectural over-optimism without empirical memory budgeting (mitigated by explicit unverified labels and risk register).
+- **Risks**: Architectural over-optimism without empirical memory budgeting (mitigated by explicit unverified labels, dataset research, and risk register).
 
 ---
 
@@ -72,7 +76,7 @@ gantt
 - **Objective**: Implement the rebuildable station storage layer, pre-seeded catalog, fallback logic for external APIs, and language-grouping query service.
 - **Features**:
   - Rebuildable SQLite cache initialization with WAL mode (`PRAGMA journal_mode=WAL;`).
-  - Pre-seeded high-uptime station catalog across primary languages (English, Hindi, Spanish, French, German).
+  - Pre-seeded high-uptime station catalog covering functional languages (**English**, **Hindi**) and conceptual placeholder languages (**Tamil**, **Kannada**, **Punjabi**).
   - Radio Browser API synchronization client with 5.0s timeouts, retry limit (max 2 retries), circuit breaker, and static seed fallback.
   - Stream URL SSRF validation filter (blocking loopback, link-local, and private subnets).
   - REST endpoints for station search, language filtering, and health checks.
@@ -101,7 +105,7 @@ gantt
 - **Features**:
   - Subprocess FFmpeg audio decoder configured for 16kHz mono `f32le` streaming with auto-reconnect parameters.
   - Memory-capped circular PCM buffer (10-second rolling window per active station).
-  - `StreamManager` singleton enforcing concurrency control (target cap: 3 active streams).
+  - `StreamManager` singleton enforcing concurrency control (initial operational target: 1 active stream on Render Free Tier; empirical stress-testing benchmark up to 3 streams).
   - Automatic stream reconnection with exponential backoff on dropouts; watchdog timer for hung streams.
   - Subscriber reference counter with a 60-second shutdown grace timer.
 - **Files / Modules Involved**:
