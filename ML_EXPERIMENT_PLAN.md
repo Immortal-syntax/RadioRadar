@@ -7,7 +7,7 @@
 
 ---
 
-## 1. Problem Formulation & Operational Bounds
+## 1. Problem Formulation, Operational Bounds & Classification Taxonomy
 
 The objective of RadioRadar is to detect when an internet radio broadcast transitions from standard programming (music, news, talk dialogue) into commercial advertising blocks, emitting one of five deterministic monitoring states:
 - `Advertisement detected`
@@ -16,11 +16,31 @@ The objective of RadioRadar is to detect when an internet radio broadcast transi
 - `Uncertain`
 - `Unavailable`
 
-### Operational Bounds & Epistemic Status:
+### 1.1. Operational Bounds & Epistemic Status:
 - **Audio Stream**: Ingested via FFmpeg subprocess, decoded to single-channel (mono) 16,000 Hz 32-bit floating-point PCM ($64\text{ KB/s}$ raw data rate) `[VERIFIED FACT]`.
 - **Target Concurrency**: **1 active stream** as the operational target for the MVP prototype on Render Free Tier `[ENGINEERING ESTIMATE]`, with 2–3 streams reserved as an empirical stress-testing benchmark in Milestone 2.
 - **Compute Envelope**: **512 MB physical RAM ceiling** and **0.1 fractional vCPU allocation** on the Render Free Web Service tier (Source: Render Official Documentation, "Instance Types and Pricing", `https://render.com/docs/free`) `[VERIFIED FACT]`. Render enforces CPU limits via Linux cgroups Completely Fair Scheduler (CFS) quotas allocating 10% of CPU time slices on a shared core, rather than downclocking physical processor clock speeds.
 - **Supported Functional Languages**: **English** and **Hindi** (including code-switched Hinglish). Conceptual placeholder languages (**Tamil**, **Kannada**, **Punjabi**) have **zero active ML models** and **zero detection claims**.
+
+### 1.2. Classification Taxonomy & Evaluation Scope (Binary Decision for MVP):
+To eliminate ambiguity between dataset annotation and runtime state emissions:
+1. **MVP Model Target is Strictly Binary**:
+   The core machine learning classifier is framed as a **binary detector**:
+   $$\text{Target Class } y \in \{1: \text{ADVERTISEMENT}, 0: \text{NON\_ADVERTISEMENT}\}$$
+2. **Mapping of Granular Ground-Truth Labels**:
+   During manual audio annotation, segments are labeled with granular categories (`ADVERTISEMENT`, `MUSIC`, `TALK`, `NEWS`, `OTHER`, `UNCERTAIN`). For model training and primary binary evaluation:
+   - **Positive Class ($y = 1$)**: `ADVERTISEMENT`.
+   - **Negative Class ($y = 0$)**: `MUSIC`, `TALK`, `NEWS`, and `OTHER` are collapsed into `NON_ADVERTISEMENT`.
+   - *Diagnostic Slice Diagnostics:* Retaining granular labels enables slice-based error analysis (e.g. measuring false-alarm rates specifically on conversational speech vs. formal news, and miss rates on musical jingles).
+3. **Treatment of Ground-Truth `UNCERTAIN` Samples**:
+   - Ground-truth samples labeled `UNCERTAIN` (e.g., DJ reading sponsor copy over a music track) must **never be silently discarded** from dataset accounting.
+   - In primary binary evaluation, they are quarantined into an explicit `UNCERTAIN` partition to maintain clean evaluation sets for positive and negative classes.
+   - Auxiliary evaluations will report the distribution of model predictions across these borderline segments.
+4. **Treatment of the Runtime `Uncertain` State**:
+   - The classifier outputs continuous probability $P(\text{ad}) \in [0.0, 1.0]$.
+   - Continuous evaluation uses threshold-independent metrics: Precision-Recall Area Under Curve (PR-AUC) and Receiver Operating Characteristic (ROC-AUC).
+   - Fixed-threshold binary metrics (Precision, Recall, Macro F1, Confusion Matrix) are evaluated at decision threshold $\tau = 0.50$ (or a tuned threshold).
+   - In hard-state evaluation of the 5-state hysteresis output, the `Uncertain` state is explicitly reported as an **abstention class** rather than being silently reclassified as true or false detection, reporting the abstention rate $\text{AR} = \frac{\text{Count}(\text{Uncertain})}{\text{Total Windows}}$.
 
 ---
 
@@ -127,45 +147,72 @@ We evaluated eight distinct algorithmic approaches against computational constra
 
 ---
 
-## 4. Acoustic Feature Vector Audit (Exact 32 Dimensions)
+## 4. Acoustic Feature Vector Audit & Implementation Specification (Exact 32 Dimensions)
 
 > [!NOTE]
-> **Architectural Specification Notice**: The feature extraction pipeline described below is an architectural specification designed for implementation and benchmarking in Milestone 3. It does not represent already executed or benchmarked code.
+> **Architectural Specification Notice**: The feature extraction pipeline described below is an architectural specification designed for implementation in Milestone 3. Parameters marked as engineering spike decisions will be validated empirically during Milestone 3 implementation rather than assumed in advance.
 
-### 4.1. STFT Sub-Framing & Feature Aggregation Protocol
+### 4.1. STFT Sub-Framing & Padding Specification
 The analysis window consists of $W = 2.50\text{ seconds}$ of contiguous mono audio at 16,000 Hz, totaling $N = 40,000\text{ samples}$ `[VERIFIED FACT]`.
 - **Sub-Frame STFT Parameters**:
+  - Sample rate: $f_s = 16,000\text{ Hz}$.
   - FFT size: $N_{\text{fft}} = 512\text{ samples}$ ($32.0\text{ ms}$ duration at 16 kHz).
   - Hop size: $N_{\text{hop}} = 256\text{ samples}$ ($16.0\text{ ms}$ hop step, 50% overlap).
-  - Window function: Periodic Hann window: $w[n] = 0.5 - 0.5 \cos\left(\frac{2\pi n}{N_{\text{fft}}}\right)$.
-  - Total sub-frames per 2.5s window: $M = \lfloor (40000 - 512)/256 \rfloor + 1 = \mathbf{155\text{ sub-frames}}$ `[VERIFIED FACT]`.
-- **Spectral Feature Aggregation (Mean Across Sub-Frames)**:
-  For all sub-frame-derived spectral features (MFCCs, Spectral Centroid, Spectral Rolloff, Spectral Flatness), the 2.5-second summary scalar feature is computed as the **arithmetic mean across the 155 sub-frames**.
-- **Global Time-Domain Calculations**:
-  Log RMS Energy and Zero-Crossing Rate are computed globally across all 40,000 samples of the 2.5s window.
-- **Micro-Pause / Silence Fraction Specification**:
-  The 2.5-second window ($40,000\text{ samples}$) is partitioned into exactly **50 non-overlapping 50ms sub-blocks** ($800\text{ samples}$ each at 16 kHz). A sub-block is classified as silent if its RMS energy is below **$-30.0\text{ dBFS}$** relative to a $1.0\text{ RMS}$ digital full scale ($20 \log_{10}(\text{RMS}) < -30.0$). The feature value is the ratio of silent sub-blocks to the 50 total sub-blocks ($\text{silent\_subblocks} / 50$).
+  - Window function: Periodic Hann window: $w[n] = 0.5 - 0.5 \cos\left(\frac{2\pi n}{N_{\text{fft}}}\right)$ for $n = 0, \dots, N_{\text{fft}}-1$.
+  - **Padding & Centering Specification (`center=False`)**:
+    The claimed count of **155 sub-frames strictly requires an unpadded, non-centered STFT configuration (`center=False` or `boundary=None`, `padded=False`)**:
+    $$M = \left\lfloor \frac{N_{\text{samples}} - N_{\text{fft}}}{N_{\text{hop}}} \right\rfloor + 1 = \left\lfloor \frac{40000 - 512}{256} \right\rfloor + 1 = \left\lfloor \frac{39488}{256} \right\rfloor + 1 = 154 + 1 = \mathbf{155\text{ sub-frames}} \quad \text{[VERIFIED FACT]}$$
+    *(Note: Libraries such as Librosa default to `center=True`, which would pad the signal by $N_{\text{fft}} // 2 = 256$ samples at each boundary, yielding 157 sub-frames. RadioRadar's pure NumPy/SciPy implementation must explicitly set `center=False` to guarantee exactly 155 valid signal sub-frames).*
 
-### 4.2. Explicit 32-Dimensional Feature Table
-
-| Feature Index | Feature Name | Description, Computation & Mathematical Definition | Physical Justification in Audio |
-|---|---|---|---|
-| **Index 0 to 12** | **Static MFCCs ($c_0$ to $c_{12}$)** | Mean across 155 sub-frames of 13 Mel-Frequency Cepstral Coefficients computed via Discrete Cosine Transform over a 26-band static Mel filter bank `[VERIFIED FACT]`. | Models spectral envelope and vocal tract formant resonances; differentiates instruments from human voices. |
-| **Index 13 to 25** | **Delta MFCCs ($\Delta c_0$ to $\Delta c_{12}$)** | Mean across sub-frames of 13 first-order temporal derivatives of MFCCs computed via regression window: $\Delta c_k(t) = \frac{\sum_{n=1}^N n (c_k(t+n) - c_k(t-n))}{2 \sum_{n=1}^N n^2}$ `[VERIFIED FACT]`. | Measures dynamic rate of change in timbre and rapid phoneme transitions. |
-| **Index 26** | **Log RMS Energy** | Global window calculation across all 40,000 samples: $\log_{10}\left(\sqrt{\frac{1}{N} \sum_{n=0}^{N-1} x[n]^2} + \epsilon\right)$ `[VERIFIED FACT]`. | Measures absolute short-term loudness and broadcast audio dynamic compression. |
-| **Index 27** | **Zero-Crossing Rate (ZCR)** | Global window calculation across all 40,000 samples: $\frac{1}{2(N-1)} \sum_{n=1}^{N-1} |\text{sgn}(x[n]) - \text{sgn}(x[n-1])|$ `[VERIFIED FACT]`. | Differentiates unvoiced fricative speech and percussion from tonal music. |
-| **Index 28** | **Spectral Centroid** | Mean center of spectral mass across 155 sub-frames: $f_c = \frac{\sum_{k} f_k \|X[k]\|}{\sum_{k} \|X[k]\|}$ `[VERIFIED FACT]`. | Measures perceptual "brightness" of audio (bright commercial jingles vs. low-frequency speech). |
-| **Index 29** | **Spectral Rolloff (85%)** | Mean across 155 sub-frames of frequency $f_r$ below which 85% of spectral magnitude resides: $\sum_{k=0}^{r} \|X[k]\| = 0.85 \sum_{k} \|X[k]\|$ `[VERIFIED FACT]`. | Distinguishes wideband music production from band-limited speech. |
-| **Index 30** | **Spectral Flatness** | Mean across 155 sub-frames of Wiener entropy ratio (geometric mean to arithmetic mean of power spectrum): $\frac{\exp\left(\frac{1}{K}\sum \ln \|X[k]\|^2\right)}{\frac{1}{K}\sum \|X[k]\|^2}$ `[VERIFIED FACT]`. | Measures noisiness vs. harmonic tonality (noise/speech vs. harmonic chords). |
-| **Index 31** | **Micro-Pause Ratio** | Ratio of silent 50ms sub-blocks (RMS $< -30.0\text{ dBFS}$) to 50 total sub-blocks across the 2.5s window `[VERIFIED FACT]`. | Detects boundary silences characteristic of radio ad breaks. |
+### 4.2. Reproducible Feature Extraction Definitions:
+1. **Static MFCCs (Indices 0–12, 13 features)**:
+   - Filter bank: 26 static triangular Mel filters spanning from $f_{\min} = 20\text{ Hz}$ to $f_{\max} = 8,000\text{ Hz}$ (Nyquist).
+   - Scale convention: HTK formula vs. Slaney linear-log scale is designated as an **engineering spike implementation decision for Milestone 3**.
+   - Log-Mel floor: $\log(S_{\text{mel}} + \epsilon_{\text{mel}})$ with stabilization floor $\epsilon_{\text{mel}} = 10^{-12}$.
+   - Discrete Cosine Transform: Type-II orthogonal DCT.
+   - Coefficient selection: $c_0$ through $c_{12}$ are retained as the 13 static coefficients ($c_0$ reflects total sub-frame log energy).
+   - Window summary: Arithmetic mean of each coefficient across all 155 sub-frames: $\bar{c}_k = \frac{1}{155} \sum_{m=1}^{155} c_k[m]$.
+2. **Delta MFCCs (Indices 13–25, 13 features)**:
+   - First-order polynomial regression across sub-frames:
+     $$\Delta c_k[m] = \frac{\sum_{n=1}^N n (c_k[m+n] - c_k[m-n])}{2 \sum_{n=1}^N n^2}$$
+   - Regression window width: $N=2$ (5-frame total span). Boundary handling (edge reflection vs. boundary frame replication) is an **engineering spike decision for Milestone 3**.
+   - Window summary: Arithmetic mean of signed deltas across the 155 sub-frames: $\Delta \bar{c}_k = \frac{1}{155} \sum_{m=1}^{155} \Delta c_k[m]$.
+3. **Log RMS Energy (Index 26, 1 feature)**:
+   - Global window formula across all 40,000 samples:
+     $$\text{LogRMS} = \log_{10}\left(\sqrt{\frac{1}{N} \sum_{n=0}^{N-1} x[n]^2} + \epsilon_{\text{rms}}\right)$$
+     with numerical epsilon $\epsilon_{\text{rms}} = 10^{-12}$ to avoid $\log_{10}(0)$ on digital silence.
+4. **Zero-Crossing Rate (ZCR, Index 27, 1 feature)**:
+   - Global window formula across all 40,000 samples:
+     $$\text{ZCR} = \frac{1}{2(N-1)} \sum_{n=1}^{N-1} |\text{sgn}(x[n]) - \text{sgn}(x[n-1])|$$
+     where $\text{sgn}(x) = 1$ for $x \ge 0$ and $-1$ for $x < 0$.
+5. **Spectral Centroid (Index 28, 1 feature)**:
+   - Sub-frame center of spectral mass across $K = 257$ frequency bins:
+     $$f_c[m] = \frac{\sum_{k=0}^{K-1} f_k |X[m, k]|}{\sum_{k=0}^{K-1} |X[m, k]| + \epsilon}$$
+     where $f_k = k \frac{f_s}{N_{\text{fft}}}$ and $\epsilon = 10^{-12}$.
+   - Window summary: Arithmetic mean across all 155 sub-frames: $\bar{f}_c = \frac{1}{155} \sum_{m=1}^{155} f_c[m]$.
+6. **Spectral Rolloff 85% (Index 29, 1 feature)**:
+   - Frequency $f_r[m]$ below which 85% of spectral magnitude concentrates:
+     $$\sum_{k=0}^{r[m]} |X[m, k]| = 0.85 \sum_{k=0}^{K-1} |X[m, k]|$$
+   - Window summary: Arithmetic mean across all 155 sub-frames.
+7. **Spectral Flatness (Index 30, 1 feature)**:
+   - Wiener entropy ratio of the power spectrum ($|X[m, k]|^2$):
+     $$\text{Flatness}[m] = \frac{\exp\left(\frac{1}{K} \sum_{k=0}^{K-1} \ln(|X[m, k]|^2 + \epsilon)\right)}{\frac{1}{K} \sum_{k=0}^{K-1} |X[m, k]|^2 + \epsilon}$$
+     with stabilization constant $\epsilon = 10^{-12}$.
+   - Window summary: Arithmetic mean across all 155 sub-frames.
+8. **Micro-Pause / Silence Fraction (Index 31, 1 feature)**:
+   - The 2.5-second window ($40,000\text{ samples}$) is partitioned into exactly **50 non-overlapping 50ms sub-blocks** ($800\text{ samples}$ each at 16 kHz).
+   - A sub-block is classified as silent if its RMS amplitude satisfies:
+     $$\text{RMS}_{\text{subblock}} = \sqrt{\frac{1}{800} \sum_{n=0}^{799} x_{\text{sub}}[n]^2} < 10^{-30.0 / 20} \approx 0.03162$$
+     (corresponding to $-30.0\text{ dBFS}$ relative to a digital full scale $1.0\text{ RMS}$).
+   - The feature value is the ratio of silent sub-blocks to the 50 total sub-blocks ($\text{count}(\text{silent sub-blocks}) / 50$).
 
 $$\text{Total Feature Vector Dimension} = 13 + 13 + 1 + 1 + 1 + 1 + 1 + 1 = \mathbf{32\text{ scalar features}} \quad \text{[VERIFIED FACT]}$$
 
 ---
 
-## 5. Detection Latency & Prediction Buffer Mathematics
+## 5. Detection Latency, Prediction Buffer Mathematics & Timing Decomposition
 
-To prevent confusion, the timing parameters of the sliding window and hysteresis state machine are defined with exact mathematical precision:
+To prevent confusion, the timing parameters of the sliding window and hysteresis state machine are defined with exact structural precision, separating startup delays from steady-state pipeline operations:
 
 ```mermaid
 gantt
@@ -181,27 +228,48 @@ gantt
     Pred 6 [3.75s to 6.25s] :37, 62
 ```
 
-### Exact Latency Definitions:
-1. **Audio Analysis Window ($W$)**: **2.50 seconds** `[VERIFIED FACT]`. The duration of contiguous raw PCM audio extracted from the circular buffer for one feature extraction step.
+### 5.1. Exact Sliding Window Parameters:
+1. **Audio Analysis Window ($W$)**: **2.50 seconds** ($40,000\text{ samples}$) `[VERIFIED FACT]`. The duration of contiguous raw PCM audio extracted from the circular buffer for one feature extraction step.
 2. **Prediction Interval / Hop Step ($H$)**: **0.75 seconds** `[VERIFIED FACT]`. The cadence at which the sliding window advances forward in time (overlapping the previous window by $1.75\text{s}$, or 70% overlap).
 3. **Prediction Buffer Size ($K$)**: **6 consecutive predictions** stored in a circular ring buffer.
-4. **Buffer Time Span Mathematics**:
+4. **Buffer Time Span vs. Elapsed Prediction Time**:
    - The wall-clock elapsed time between the 1st prediction and the 6th prediction is:
      $$(K - 1) \times H = (6 - 1) \times 0.75\text{s} = \mathbf{3.75\text{ seconds}} \quad \text{[VERIFIED FACT]}$$
    - The **total continuous audio time span covered** from the start of Prediction 1's audio window to the end of Prediction 6's audio window is:
      $$T_{\text{span}} = W + (K - 1) \times H = 2.50\text{s} + (6 - 1) \times 0.75\text{s} = \mathbf{6.25\text{ seconds}} \quad \text{[VERIFIED FACT]}$$
-   - **Crucial Distinction**: A 6-prediction buffer represents **3.75s of elapsed prediction steps** (after the initial 2.5s window is filled) and covers **6.25s of cumulative broadcast audio**. Because sliding windows overlap by 70% ($1.75\text{s}$), successive predictions do not add time sequentially. Adding window durations sequentially ($6 \times 2.5\text{s} = 15\text{s}$) is physically false. It must **never** be described as "6 seconds of elapsed time" or "4.5 seconds of audio".
-5. **State Stabilization Delay ($T_{\text{stabilize}}$)**:
-   - To prevent rapid UI flickering, a state transition requires a sustained consensus of $\ge 4$ consecutive predictions agreeing on a new state `[ENGINEERING ESTIMATE]`.
-   - The elapsed stabilization confirmation time is $(4 - 1) \times 0.75\text{s} = \mathbf{2.25\text{ seconds}}$ `[VERIFIED FACT]`. (If requiring 5 consecutive predictions, elapsed delay is $(5 - 1) \times 0.75\text{s} = 3.00\text{ seconds}$).
-6. **End-to-End Measured Detection Latency**:
-   The true end-to-end delay from when an ad begins playing in the radio broadcast until the client UI updates is the sum of:
-   - Stream encoder & CDN broadcast buffering: ~2.0 to 4.0s `[ENGINEERING ESTIMATE]`
-   - Network transit & FFmpeg socket buffer: ~1.0 to 2.0s `[ENGINEERING ESTIMATE]`
-   - Window accumulation: 2.50s `[VERIFIED FACT]`
-   - Stabilization confirmation delay: 2.25 to 3.00s `[ENGINEERING ESTIMATE]`
-   - WebSocket dispatch & DOM render: ~0.05 to 0.15s `[ENGINEERING ESTIMATE]`
-   - **Total End-to-End Latency**: **~7.8 to 11.6+ seconds** `[UNMEASURED HYPOTHESIS until benchmarked]`.
+   - **Crucial Distinction**: A 6-prediction buffer represents **3.75s of elapsed prediction steps** (after the initial 2.5s window is filled) and covers **6.25s of cumulative broadcast audio**. Because sliding windows overlap by 70% ($1.75\text{s}$), successive predictions do not add time sequentially. Adding window durations sequentially ($6 \times 2.5\text{s} = 15\text{s}$) is physically false.
+
+### 5.2. Timing Decomposition: Startup vs. Steady-State Operation
+
+#### Phase A: Stream Startup & Buffer Prefill (Sequential once on station connect)
+When monitoring of a radio station is initially launched:
+1. **Network Connect & ICY Handshake**: ~1.0 to 2.0s `[ENGINEERING ESTIMATE]`
+2. **FFmpeg Subprocess Boot & Pipe Fill**: ~0.5 to 1.0s `[ENGINEERING ESTIMATE]`
+3. **Initial Buffer Accumulation**: Exactly 2.50s of continuous PCM audio must be ingested before the very first analysis window is populated `[VERIFIED FACT]`.
+- During this entire startup period, the state machine emits `Analyzing` (nominal startup window: 0 to 5 seconds).
+
+#### Phase B: Steady-State Monitoring (Continuous & Pipelined)
+Once the stream worker is active and the circular buffer is populated:
+1. **Broadcaster CDN & Audio Transport Lag (Fixed Pipeline Offset)**:
+   Radio audio arrives at the server with an inherent transport delay of ~2.0 to 5.0 seconds `[ENGINEERING ESTIMATE]` relative to live studio microphone broadcast. This delay is an external broadcast distribution lag; it does **not** stall or delay the internal processing pipeline.
+2. **Concurrent Ingestion & Feature Extraction**:
+   Audio ingestion and window evaluation run concurrently. Every $H = 0.75\text{s}$, a 2.50s audio slice is evaluated. Feature extraction takes an estimated $<20\text{ms}$ `[ENGINEERING ESTIMATE]`, and model inference takes $<5\text{ms}$ `[ENGINEERING ESTIMATE]`.
+3. **State Stabilization Confirmation Delay ($T_{\text{stabilize}}$)**:
+   When an advertisement begins in the broadcast:
+   - As ad audio enters the sliding window, consecutive predictions begin reflecting elevated $P(\text{ad})$.
+   - To prevent rapid state fluttering, the state machine requires a sustained consensus of $\ge 4$ consecutive predictions agreeing on the ad state.
+   - The elapsed confirmation delay to observe 4 consecutive predictions spaced 0.75s apart is:
+     $$(K_{\text{agree}} - 1) \times H = (4 - 1) \times 0.75\text{s} = \mathbf{2.25\text{ seconds}} \quad \text{[VERIFIED FACT]}$$
+     (If configured for 5 agreeing predictions, confirmation delay is $(5 - 1) \times 0.75\text{s} = 3.00\text{ seconds}$).
+4. **WebSocket Dispatch & UI Render**:
+   Broadcasting the state update frame via WebSocket and rendering in the browser takes ~0.05 to 0.15s `[ENGINEERING ESTIMATE]`.
+
+### 5.3. Internal Detector Response Time vs. Total Studio-to-UI Lag
+- **Internal Detector Response Time (Steady State)**:
+  Once the first analysis window covering the ad is processed, the internal detector confirms and broadcasts the state update in:
+  $$\text{Internal Response Time} = T_{\text{stabilize}} + T_{\text{extract}} + T_{\text{infer}} + T_{\text{ws}} \approx 2.25\text{s} + 0.02\text{s} + 0.005\text{s} + 0.10\text{s} \approx \mathbf{2.37\text{ seconds}} \quad \text{[ENGINEERING ESTIMATE]}$$
+- **Total Studio-to-UI Lag (Unmeasured Hypothesis)**:
+  The previously cited total delay of **~7.8 to 11.6+ seconds** represents the cumulative delay from over-the-air studio broadcast to client screen update (CDN delay ~2–4s + network transport ~1–2s + window accumulation 2.5s + stabilization delay ~2.25–3.0s + client render ~0.1s). This range conflates external CDN broadcast delay with internal detector latency and is retained strictly as an **illustrative unmeasured hypothesis** that must be empirically benchmarked in Milestone 7.
 
 ---
 
@@ -209,17 +277,22 @@ gantt
 
 ### 6.1. Rigorous Data Partitioning Protocol (GroupKFold & Station Independence)
 
-#### 1. Five-Fold GroupKFold with Five Stations Per Language
+#### 1. Five-Fold GroupKFold Protocol & Inner Model Selection Limitations
 With 5 English stations and 5 Hindi stations (10 stations total in RadioRadar-10h):
 - **Fold Structure**: Evaluated independently for English and Hindi using **5-fold GroupKFold**, where data is grouped strictly by `station_id` `[VERIFIED FACT]`.
-- **Per-Fold Mechanics**: In each fold, **4 stations are used for training** and **1 held-out station is used for testing**. Rotating across 5 folds ensures that every station is evaluated exactly once as an out-of-sample test station.
-- **Small-Sample Uncertainty**: Evaluating on only 5 station groups per language represents a small sample size. Results will exhibit high statistical variance across folds, which must be transparently reported as confidence intervals or per-fold distributions.
-- **Unbalanced Class Distributions Across Folds**: GroupKFold groups samples strictly by station, **not by target class**. Broadcast formats vary widely in commercial density (e.g. commercial pop music radio may contain 20–25% ads, talk radio ~10–15% ads, and public radio virtually 0% ads). Consequently, **GroupKFold does NOT guarantee balanced class distributions across folds**.
+- **Outer Evaluation vs. Inner Model Selection**:
+  - **Outer Evaluation**: In each fold, **1 held-out station serves as the completely unseen test set**, and the remaining **4 stations are used for training**. Across 5 folds, every station serves as the test fold exactly once.
+  - **Inner Model Selection Limitations**: Any hyperparameter selection or model comparison must occur strictly across the 4 training stations. With only 4 station groups available internally, inner cross-validation evaluates on only 1 held-out station at a time, resulting in high variance and noisy selection.
+  - **No Claim of Statistical Robustness**: Nested cross-validation on 4 internal stations does **not** make the small dataset statistically robust. It is merely the least biased partitioning structure available under a 5-station constraint.
+  - **Avoid Excessive Hyperparameter Tuning**: Exhaustive grid searches over dozens of hyperparameter combinations across 4 stations risk overfitting to idiosyncratic station acoustics. Instead, RadioRadar will use a **small, predeclared baseline comparison** with fixed, conservative hyperparameters (e.g. default Logistic Regression, shallow Random Forest with `max_depth=6..8`, HistGradientBoosting with shallow trees).
+- **Small-Sample Uncertainty**: Evaluating on only 5 station groups per language represents a small sample size. Results will exhibit substantial statistical variance across folds. Do not fabricate confidence intervals or claim that 5 folds provide precise population-level uncertainty estimates; reporting must provide empirical fold-by-fold results and the observed variance across the 5 folds.
+- **Unbalanced Class Distributions Across Folds**: GroupKFold groups samples strictly by station, **not by target class**. Broadcast advertising density varies widely by station format, country, time of day, and programming. Consequently, **GroupKFold does NOT guarantee balanced class distributions across folds**. RadioRadar will measure and report actual class distributions in its own annotated recordings rather than assuming arbitrary commercial percentages.
 - **Mandatory Fold Reporting**: For every fold, the evaluation suite must report:
   1. The specific station composition (which station is in test, which 4 in train).
-  2. The exact class counts and proportions (number and percentage of `ADVERTISEMENT` vs. `NON_ADVERTISEMENT` windows in train and test).
-- **Hyperparameter Selection (Inner Nested Cross-Validation)**: Hyperparameter tuning (e.g. tree depth, estimator count, regularization) must **never** be tuned against the held-out test fold. Hyperparameters must be selected strictly through inner cross-validation on the 4 training stations (or an internal tuning split within the training stations).
-- **Cross-Validation vs. External Generalization**: 5-fold GroupKFold is an **internal cross-station validation protocol**, not an independent external benchmark. It estimates how well the model transfers across the 5 sampled stations. **Robust claims of generalized real-world performance cannot be made from only 5 stations per language.** A well-powered generalization claim would require a diverse evaluation corpus of **20–50+ independent radio stations** across varying formats, bitrates, and regions.
+  2. Per-station results (metrics on each individual held-out test station).
+  3. The exact class counts and proportions (number and percentage of `ADVERTISEMENT` vs. `NON_ADVERTISEMENT` windows in train and test).
+  4. Aggregate summary metrics (mean and range across folds).
+- **Internal Cross-Station Evaluation vs. External Generalization**: 5-fold GroupKFold is an **internal cross-station validation protocol**, not an independent external benchmark. Five stations per language are **insufficient for strong claims of broad real-world generalization**. While an expanded collection of 20–50+ diverse stations is noted as a future proposed planning target, this is an **informal engineering target**, not a proven statistical threshold.
 - **Impracticability of a Separate Locked Test Set**: With only 5 stations per language, reserving a separate locked station-level test set (e.g. 2 stations) would leave only 3 stations for training and validation, starving the model of training diversity. Hence, 5-fold GroupKFold provides the most informative cross-station assessment feasible under a 5-station constraint.
 
 #### 2. Temporal Leakage Prevention & Rationale on Purge Buffers
@@ -237,10 +310,12 @@ With 5 English stations and 5 Hindi stations (10 stations total in RadioRadar-10
 5. **Candidate Model B (HistGradientBoosting)**: `max_iter=50`, `max_depth=6`, `learning_rate=0.08`.
 
 ### 6.3. Mandatory Evaluation Metrics
-- **Precision, Recall, and Macro F1-score** (accuracy alone is rejected due to broadcast class imbalance where ads represent ~15–25% of commercial airtime) `[VERIFIED FACT]`.
-- **Confusion Matrix**: Highlighting Speech-to-Ad false alarms and Music-to-Ad misses.
+- **Precision, Recall, and Macro F1-score** (accuracy alone is rejected due to broadcast class imbalance where class distribution varies substantially across formats) `[VERIFIED FACT]`.
+- **Threshold-Independent Metrics**: Precision-Recall Area Under Curve (PR-AUC) and Receiver Operating Characteristic (ROC-AUC) computed directly on raw continuous probabilities $P(\text{ad})$.
+- **Confusion Matrix**: Highlighting Speech-to-Ad false alarms (`TALK`, `NEWS`) and Music-to-Ad misses (`MUSIC`).
 - **False Positive Rate on Continuous Speech**: Evaluated specifically on pure talk/news streams (*Shrutilipi* Hindi news, NPR English news). Target: $\text{FPR} < 0.15$ `[UNMEASURED HYPOTHESIS]`.
 - **Per-Language Reporting**: Evaluated independently on the English test split and the Hindi/Hinglish test split.
+- **Abstention Reporting**: Reporting of the proportion of windows assigned to the `Uncertain` monitoring state during hard-state evaluation.
 
 ---
 
@@ -261,8 +336,8 @@ With 5 English stations and 5 Hindi stations (10 stations total in RadioRadar-10
 ## 8. Summary of Research Integrity Corrections
 
 1. **Render Free-Tier CPU Allocation**: Removed conversion of 0.1 vCPU to an assumed 200–300 MHz clock speed; documented that 0.1 CPU is a fractional cgroups CFS time quota (10% slice), cited the official Render documentation (`https://render.com/docs/free`), and reclassified Whisper throughput claims (5s audio in 15–30+s) as `[UNMEASURED HYPOTHESIS]`.
-2. **Feature Extraction Specification**: Defined exact STFT parameters (512-sample FFT, 256-sample hop, Hann window, 155 sub-frames), mean aggregation for spectral features, global 40,000-sample calculations for RMS and ZCR, and 50 non-overlapping 50ms sub-blocks with $-30.0\text{ dBFS}$ threshold for Micro-Pause Ratio. Tagged as an architectural specification for Milestone 3.
-3. **Latency Verification**: Reaffirmed mathematical definitions ($W=2.50\text{s}$, $H=0.75\text{s}$, 1st-to-4th pred = $2.25\text{s}$, 1st-to-6th pred = $3.75\text{s}$, 6-prediction buffer audio span $T_{\text{span}} = 6.25\text{ seconds}$, end-to-end latency ~7.8–11.6+s `[UNMEASURED HYPOTHESIS]`). Explained why audio coverage differs from elapsed prediction time.
-4. **GroupKFold Methodology**: Clarified 5-fold GroupKFold with 5 stations per language (4 train, 1 test per fold), acknowledged small-sample statistical uncertainty, documented that grouping by station does not balance class distribution across folds, required reporting class counts and station composition per fold, specified inner-loop hyperparameter tuning, clarified that CV is an internal cross-station evaluation (not an external test), noted that 20–50+ stations would be required for robust generalization, and explained why a separate locked test set is impractical with 5 stations.
-5. **Purge Buffer Rigor**: Explained that station-disjoint folds inherently prevent sample overlap (making an arbitrary 30s purge buffer unjustified for station-disjoint splits), and mathematically derived the $\ge 6.25\text{s}$ minimum purge gap required whenever continuous audio from a single station is split temporally.
-6. **Numerical Claims & MVP Policy**: Tagged all claims with their exact epistemic status (`[VERIFIED FACT]`, `[RESEARCH-REPORTED RESULT]`, `[ENGINEERING ESTIMATE]`, `[UNMEASURED HYPOTHESIS]`), maintaining English and Hindi as functional targets, Tamil/Kannada/Punjabi as conceptual UI categories, and 1 active stream as the initial operational target.
+2. **Feature Extraction Specification & STFT Reproducibility**: Defined exact STFT parameters ($N_{\text{fft}}=512$, $N_{\text{hop}}=256$, Hann window, explicitly requiring `center=False` unpadded configuration to yield 155 sub-frames), reproducible formulas for MFCCs, Deltas, Log RMS (numerical $\epsilon=10^{-12}$), ZCR, Spectral Centroid, Rolloff, Flatness (power spectrum with $\epsilon=10^{-12}$), and Micro-Pause Ratio (50 blocks of 50ms at $-30.0\text{ dBFS}$ threshold). Designated unfinalized parameters as engineering spike decisions for Milestone 3.
+3. **Latency Verification & Pipeline Decomposition**: Deconstructed latency into initial stream startup/prefill vs. steady-state pipelined operation; retired the sequential addition fallacy; identified internal detector response time as $\approx 2.37\text{ seconds}$; and retained the ~7.8–11.6+ second total studio-to-UI delay strictly as an illustrative unmeasured hypothesis.
+4. **GroupKFold Methodology & Inner Validation Limits**: Clarified 5-fold GroupKFold with 5 stations per language (outer test on 1 station, training on 4); documented the severe limitations of inner validation with only 4 station groups; emphasized a small predeclared baseline comparison over excessive tuning; mandated per-station and class distribution reporting; removed unsupported ad percentages; noted that 20–50+ stations is an informal planning target rather than a proven statistical threshold; clarified that station-disjoint splits inherently prevent sample overlap; and derived the $\ge 6.25\text{s}$ purge gap for within-station temporal splits.
+5. **Copyright, Section 39 & Feature Reconstruction**: Explicitly analyzed Section 37, Section 39(a)/(b)/(c), and Section 52(1)(a)(i) of the Indian Copyright Act, 1957; distinguished broadcast reproduction rights from underlying musical/literary/sound recording copyrights; clarified that Section 39(a) does not resolve underlying copyrights nor authorize public monitoring services; refrained from legal advice; corrected the feature reconstruction claim by explaining that Griffin-Lim and neural vocoders do not operate directly on time-aggregated 32-dim vectors; and noted that the vector's reconstructibility is an open empirical question rather than an established capability.
+6. **Languages & Binary Scope**: Retracted generalizations comparing Western and Indian ad musicality; affirmed English and Hindi as separate functional evaluation groups and Tamil, Kannada, Punjabi strictly as conceptual UI placeholders; and formally defined the binary MVP model target while preserving fine-grained annotation labels for slice diagnostics and quarantining uncertain samples.

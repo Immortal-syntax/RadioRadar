@@ -129,12 +129,14 @@ gantt
 ### Milestone 3: Lightweight Real-Time Feature Extraction Engine
 - **Objective**: Implement pure NumPy/SciPy acoustic feature extraction operating on sliding audio windows, benchmarking throughput on constrained CPU.
 - **Features**:
-  - Sliding window segmenter: 2.5-second audio analysis window with a 0.75-second prediction interval (hop length: 1.75s overlap).
-  - Short-Time Energy & RMS dynamic range computation.
-  - Zero Crossing Rate (ZCR) and unvoiced/voiced ratio.
-  - Spectral centroid, spectral rolloff, and spectral flatness.
-  - NumPy-based Mel-Frequency filter bank (13 MFCC coefficients).
-  - Micro-pause and boundary silence detector.
+  - Sliding window segmenter: 2.5-second audio analysis window ($40,000\text{ samples}$ at 16 kHz) with a 0.75-second prediction interval ($1.75\text{s}$ overlap).
+  - Unpadded STFT configuration (`center=False`, $N_{\text{fft}}=512$, $N_{\text{hop}}=256$, Hann window) yielding exactly 155 sub-frames per 2.5s window.
+  - Short-Time Energy & Log RMS calculation with numerical stabilization $\epsilon_{\text{rms}}=10^{-12}$.
+  - Zero Crossing Rate (ZCR) globally over 40,000 samples.
+  - Spectral centroid, rolloff 85%, and spectral flatness (power spectrum with $\epsilon=10^{-12}$) summarized as means across 155 sub-frames.
+  - NumPy-based 26 Mel filter bank yielding 13 static MFCCs ($c_0$ to $c_{12}$) and 13 delta MFCCs.
+  - Micro-pause detector (50 non-overlapping 50ms sub-blocks, thresholded at $-30.0\text{ dBFS}$).
+  - Engineering spike decisions: HTK vs Slaney filter weights, delta regression boundary handling.
 - **Files / Modules Involved**:
   - `backend/app/audio/features.py` (Pure NumPy feature extraction functions)
   - `backend/app/audio/constants.py` (Sample rates, FFT sizes, Mel filter coefficients)
@@ -153,12 +155,13 @@ gantt
 ### Milestone 4: Ad Classifier, Hysteresis Filter & State Machine
 - **Objective**: Establish the machine learning evaluation pipeline, train an initial baseline model against defined comparisons, and implement temporal hysteresis.
 - **Features**:
-  - Documented protocol for audio sample collection across functional target languages (**English**, **Hindi**), treating **Tamil**, **Kannada**, and **Punjabi** strictly as conceptual UI placeholders.
-  - 5-fold GroupKFold cross-validation grouped strictly by station ID (4 train, 1 test per fold; reporting fold station and class distributions; inner-loop tuning; mathematically derived $\ge 6.25\text{s}$ purge buffer for within-station temporal splits).
-  - Baseline model comparisons: Majority-class baseline, Logistic Regression, and Random Forest / HistGradientBoosting.
+  - Binary classifier scope (`ADVERTISEMENT` vs. `NON_ADVERTISEMENT`) across functional target languages (**English**, **Hindi**), treating **Tamil**, **Kannada**, and **Punjabi** strictly as conceptual UI placeholders.
+  - Granular ground-truth labels (`MUSIC`, `TALK`, `NEWS`, `OTHER`) preserved for slice diagnostics; `UNCERTAIN` ground-truth samples quarantined.
+  - 5-fold GroupKFold cross-validation grouped strictly by station ID (outer test on 1 station, training on 4; inner validation limited by 4 station groups; small predeclared baseline comparisons; reporting per-station results and class distributions; no fabricated confidence intervals; 20–50+ stations as informal planning target).
+  - Baseline model comparisons: Majority-class baseline, Logistic Regression, shallow Random Forest (`max_depth=6..8`, `n_estimators=30..50`), and HistGradientBoosting.
   - Moving-window probability buffer (last 6 frames covering 6.25s audio span across 3.75s step time) with asymmetric hysteresis thresholds.
-  - Explicit 5-state lifecycle management (`Advertisement detected`, `No advertisement detected`, `Analyzing`, `Uncertain`, `Unavailable`).
-  - Distinction between state stabilization delay (2.25-3.0s) and actual end-to-end detection latency (~7.8-11.6+ s [UNMEASURED HYPOTHESIS]).
+  - Explicit 5-state lifecycle management (`Advertisement detected`, `No advertisement detected`, `Analyzing`, `Uncertain`, `Unavailable`) with abstention reporting.
+  - Distinction between steady-state internal detector response (~2.37s) and total studio-to-UI broadcast lag (~7.8-11.6+ s [UNMEASURED HYPOTHESIS]).
 - **Files / Modules Involved**:
   - `backend/app/ml/classifier.py` (Model loader and inference wrapper)
   - `backend/app/ml/hysteresis.py` (Temporal smoothing and state transitions)

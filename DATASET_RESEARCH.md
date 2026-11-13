@@ -238,21 +238,38 @@ Previous documentation claimed that ephemeral recording of public radio streams 
 ### 5.2. Legal & Regulatory Considerations
 
 > [!CAUTION]
-> **Legal Disclaimer**: This section provides technical and architectural context regarding intellectual property and broadcast regulations for research purposes. It does **not** constitute legal advice, nor does it provide a definitive determination of legality under applicable jurisdictions.
+> **Legal Disclaimer**: This section provides technical and architectural analysis of intellectual property and broadcast regulations for research purposes. It does **not** constitute legal advice, nor does it provide a definitive legal determination regarding the project's recording practices under applicable jurisdictions.
 
-1. **Broadcast Reproduction Rights under Indian Law (Section 37)**:
-   - In India, **Section 37 of the Copyright Act, 1957** grants every broadcasting organization an exclusive "Broadcast Reproduction Right" lasting 25 years from the broadcast year `[VERIFIED FACT]`.
-   - Specifically, under **Section 37(3)(c)**, any person who, without the broadcaster's license, *"makes any sound recording or visual recording of the broadcast"* is deemed to infringe this statutory right.
-   - **Fair Dealing Exceptions (Section 52(1)(a)(i))**: Section 52(1)(a)(i) provides statutory fair dealing exemptions for *"private or personal use, including research"* `[VERIFIED FACT]`. However, this statutory exemption cannot be assumed to provide a blanket immunity for all automated broadcast recording or systematic dataset curation. Furthermore, fair dealing in India is strictly codified and does not offer the flexible, common-law scope of US fair use (17 U.S.C. § 107).
-   - International treaties (e.g., the Rome Convention for the Protection of Performers, Producers of Phonograms and Broadcasting Organisations) similarly establish neighboring rights against unauthorized fixation of broadcast signals.
-2. **Dataset Redistribution Restrictions & Feature Vector Invertibility**:
+1. **Broadcast Reproduction Rights & Statutory Exceptions under Indian Law (Sections 37 & 39)**:
+   - In India, **Section 37 of the Copyright Act, 1957** grants broadcasting organizations an exclusive statutory "Broadcast Reproduction Right" lasting 25 years from the year of broadcast `[VERIFIED FACT]`. Under **Section 37(3)(c)**, any person who, without the broadcaster's license, *"makes any sound recording or visual recording of the broadcast"* is deemed to infringe this right.
+   - **Statutory Exceptions under Section 39**: Section 39 of the Act specifically defines acts that do **not** infringe the broadcast reproduction right or performer's right:
+     * **Section 39(a)**: *"the making of any sound recording or visual recording for the private use of the person making it, or solely for purposes of bona fide teaching or research"* `[VERIFIED FACT]`.
+     * **Section 39(b)**: The use, consistent with fair dealing, of excerpts of a broadcast in the reporting of current events or for bona fide review, teaching, or research.
+     * **Section 39(c)**: Such other acts, with necessary adaptations and modifications, which do not constitute infringement of copyright under Section 52.
+   - **Crucial Legal Distinctions**:
+     * **A. Broadcast Reproduction Rights vs. Underlying Works**: A radio broadcast signal is distinct from the underlying copyrighted works it conveys. Section 39 limits *only* the broadcaster's reproduction right and performer's right. **Section 39(a) does NOT automatically resolve or license copyright claims held by underlying copyright owners** (composers, lyricists, sound recording record labels, or commercial scriptwriters).
+     * **B. Underlying Copyrights (Section 52(1)(a)(i))**: Section 52(1)(a)(i) provides a statutory fair dealing exemption for *"private or personal use, including research"* against copyright in underlying works `[VERIFIED FACT]`. However, statutory fair dealing in India is strictly codified and narrower than US common-law fair use (17 U.S.C. § 107). It cannot be assumed that every academic recording automatically qualifies as lawful.
+     * **C. Private Research Recording vs. Public Service**: While making private, local audio recordings solely for training and evaluating an academic ML model may align with Section 39(a) and Section 52(1)(a)(i) as *bona fide* research fixations, this does **not** permit deploying a continuous public monitoring platform, providing commercial detection feeds, or operating a broadcast monitoring service.
+     * **D. Storage, Processing, Publication & Redistribution**:
+       - *In-Memory Processing:* Transient, ephemeral circular buffers in RAM ($10\text{s}$ window) avoid creating persistent fixations on disk during live monitoring.
+       - *Local Storage:* Local research recordings must remain private, secure, and restricted to bona fide research purposes.
+       - *Public Redistribution:* Raw audio files (`.wav` or `.mp3`) must NEVER be published or redistributed publicly.
+
+2. **Dataset Redistribution Restrictions & Feature Vector Reconstructibility Nuance**:
    - **Prohibition on Raw Audio Distribution**: **RadioRadar will NOT publicly redistribute, host, or publish raw recorded broadcast audio files (`.wav` or `.mp3`).** Redistributing third-party broadcasts without explicit licensing from broadcasters, composers, and recording artists carries direct copyright infringement exposure.
-   - **Nuance on Feature Vector Invertibility**: While RadioRadar intends to publish only numerical feature matrices (e.g., normalized 32-dimensional feature tables) and timestamp metadata for research reproducibility, **these feature matrices cannot be definitively labeled "non-reconstructible" without empirical verification**. Modern phase-reconstruction algorithms (such as the Griffin-Lim algorithm) and neural vocoders (e.g., MelGAN, HiFi-GAN) can partially invert mel-frequency representations to reconstruct recognizable speech, speaker characteristics, or music melodies.
+   - **Technical Analysis of Feature Vector Reconstructibility**:
+     * Previous documentation suggested that phase reconstruction (Griffin-Lim) or neural vocoders (MelGAN, HiFi-GAN) could directly reconstruct audio from RadioRadar's 32-dimensional feature vector. **This claim was technically inaccurate:**
+       - **Griffin-Lim Algorithm**: Operates exclusively on a 2D time-frequency magnitude spectrogram matrix ($|X(t, f)|$). It cannot invert a single time-averaged 32-element summary vector.
+       - **Neural Vocoders (MelGAN, HiFi-GAN)**: Require a time-resolved sequence of mel-spectrogram frames (e.g. 80 mel channels $\times$ 150+ time frames) as conditioning input. They cannot directly accept a static, time-averaged 32-dimensional vector.
+     * **High Temporal Loss**: The 32-dimensional representation collapses 155 sub-frames of audio into arithmetic summary statistics across 2.5 seconds, causing severe temporal collapse and irreversible loss of fine phonemic information.
+     * **Reconstructibility Risk as an Open Question**: However, the vector cannot be declared provably non-reconstructible either. Future conditional generative architectures conditioned on summary acoustic timbre and loudness metrics might theoretically hallucinate speech textures or approximate acoustic qualities. The true reconstruction risk remains an **unmeasured, open empirical question**, not an experimentally established capability or a solved risk. Do not claim the vector is either perfectly reconstructible or provably non-reconstructible.
    - **Withholding Raw Audio Does Not Eliminate All Legal Questions**: While withholding raw audio avoids direct sound recording redistribution, it does not automatically eliminate all legal questions regarding broadcast fixation, commercial terms of service, or personality rights.
+
 3. **Broadcaster Terms of Service & Stream Access**:
    - Web stream endpoints often include Terms of Service prohibiting automated scraping, caching, or monitoring. Broadcasters may enforce technical restrictions such as geoblocking or tokenized session parameters.
+
 4. **Governance Conclusion**:
-   - Transient in-memory analysis does not confer commercial operational immunity. A formal legal review is mandatory before any public deployment or production scaling.
+   - Transient in-memory analysis does not confer commercial operational immunity. A formal legal review by qualified copyright counsel is mandatory before any public deployment or production scaling.
 
 ---
 
@@ -267,14 +284,16 @@ Because no labeled training dataset exists, RadioRadar will record and manually 
   - *5 English Stations*: BBC World Service, NPR News, Capital FM, LBC London, Radio New Zealand.
   - *5 Hindi Stations*: Radio Mirchi, AIR Vividh Bharati, Red FM, Radio City Hindi, Big FM.
 
-### 6.2. Ground Truth Annotation Schema
+### 6.2. Ground Truth Annotation Schema & Taxonomy Mapping
+
+#### 1. Fine-Grained 6-Class Annotation Schema
 Contiguous, non-overlapping intervals labeled in Audacity or via Python labeling scripts:
 - `ADVERTISEMENT`: Commercial spots, sponsor reads, promotional pitches.
 - `MUSIC`: Continuous musical tracks without vocal interruption.
 - `TALK`: Spoken dialogue, interviews, news reading without commercial intent.
 - `NEWS`: Formal news bulletins.
 - `OTHER`: Station identifiers, chimes, test tones.
-- `UNCERTAIN`: Ambiguous segments (e.g., DJ reading sponsor copy over music).
+- `UNCERTAIN`: Ambiguous segments (e.g., DJ reading sponsor copy over music, rapid sponsor plugs during talk).
 
 ```json
 {
@@ -295,6 +314,21 @@ Contiguous, non-overlapping intervals labeled in Audacity or via Python labeling
 }
 ```
 
+#### 2. Binary Model Scope & Mapping Protocol for MVP
+- **Operational Model Scope**: The initial detection model for the MVP is strictly **binary**:
+  $$\text{Target Class} \in \{\text{ADVERTISEMENT}, \text{NON\_ADVERTISEMENT}\}$$
+- **Mapping Protocol for Model Training**:
+  - **Positive Class ($y = 1$)**: Segments labeled `ADVERTISEMENT`.
+  - **Negative Class ($y = 0$)**: Segments labeled `MUSIC`, `TALK`, `NEWS`, and `OTHER` are collapsed into `NON_ADVERTISEMENT`.
+- **Purpose of Fine-Grained Labels**:
+  Retaining granular labels in the underlying dataset enables **fine-grained slice-based diagnostics and error analysis**:
+  - Measuring speech-to-ad false alarms on formal news (`NEWS`) and conversational dialogue (`TALK`).
+  - Measuring music-to-ad misses on instrumental and vocal tracks (`MUSIC`).
+- **Treatment of Ground-Truth `UNCERTAIN` Samples**:
+  - Ground-truth samples labeled `UNCERTAIN` must **never be silently discarded** from the dataset or evaluation reporting.
+  - In primary binary evaluation, they are quarantined into an explicit `UNCERTAIN` partition to preserve clean ground truth for positive and negative classes.
+  - An auxiliary evaluation must explicitly report the model's predictions on these uncertain segments (proportion flagged as Ad vs. Non-Ad) to assess borderline classification behavior.
+
 ### 6.3. Rigorous Evaluation Strategy & Data Split Protocol
 
 ```mermaid
@@ -306,19 +340,22 @@ graph TD
     end
 ```
 
-#### 1. Detailed Five-Fold GroupKFold Protocol
+#### 1. Five-Fold GroupKFold Protocol & Inner Validation Limitations
 With 5 English stations and 5 Hindi stations (10 total stations in RadioRadar-10h):
-- **Mechanics of 5-Fold GroupKFold**: Evaluated independently for English and Hindi using **5-fold GroupKFold**, where all data is grouped strictly by `station_id` `[VERIFIED FACT]`. In each fold:
-  - **4 stations are used for training** (with internal nested cross-validation or tuning folds for hyperparameter selection).
-  - **1 held-out station is used for testing**.
-  Across the 5 folds, each station serves as the unseen test fold exactly once.
-- **Small-Sample Uncertainty**: Evaluating on only 5 station groups per language represents a small sample size. Performance metrics will exhibit substantial statistical variance across folds, which must be reported transparently as per-fold results and confidence intervals.
-- **Unbalanced Class Distributions Across Folds**: GroupKFold groups samples by station, **not by target class**. Broadcast formats differ substantially in commercial density (e.g. music radio with 20% ads vs. talk radio with 10% ads vs. non-commercial public radio with 0% ads). Consequently, **GroupKFold does NOT guarantee balanced class distributions across folds**.
+- **Mechanics of 5-Fold GroupKFold**: Evaluated independently for English and Hindi using **5-fold GroupKFold**, where all data is grouped strictly by `station_id` `[VERIFIED FACT]`.
+- **Outer Evaluation vs. Inner Model Selection**:
+  - **Outer Evaluation**: In each fold, **1 held-out station serves as the completely unseen test set**, and the remaining **4 stations are used for training**. Across 5 folds, every station serves as the test fold exactly once.
+  - **Inner Model Selection Limitations**: Any hyperparameter tuning or model selection must occur strictly within the 4 training stations. However, with only 4 station groups available internally, inner cross-validation evaluates on only 1 held-out station at a time, resulting in high variance and noisy selection.
+  - **No Claim of Statistical Robustness**: Nested cross-validation on 4 internal stations does **not** make the small dataset statistically robust. It is merely the least biased partitioning structure available under a 5-station constraint.
+  - **Avoid Excessive Hyperparameter Tuning**: Exhaustive grid searches over dozens of hyperparameter combinations across 4 stations risk overfitting to idiosyncratic station acoustics. Instead, RadioRadar will use a **small, predeclared baseline comparison** with fixed, conservative hyperparameters (e.g. default Logistic Regression, shallow Random Forest with `max_depth=6..8`, HistGradientBoosting with shallow trees).
+- **Small-Sample Uncertainty**: Evaluating on only 5 station groups per language represents a small sample size. Results will exhibit substantial statistical variance across folds. Do not fabricate confidence intervals or claim that 5 folds provide precise population-level uncertainty estimates; reporting must provide empirical fold-by-fold results and the observed variance across the 5 folds.
+- **Unbalanced Class Distributions Across Folds**: GroupKFold groups samples strictly by station, **not by target class**. Broadcast advertising density varies widely by station format, country, time of day, and programming. Consequently, **GroupKFold does NOT guarantee balanced class distributions across folds**. RadioRadar will measure and report actual class distributions in its own annotated recordings rather than assuming arbitrary commercial percentages.
 - **Mandatory Reporting Requirements**: For every fold, the evaluation report must detail:
-  1. The exact station composition (which station is in test, which 4 in train).
-  2. The exact class counts and proportions (number and percentage of `ADVERTISEMENT` vs. `NON_ADVERTISEMENT` windows in train and test).
-- **Hyperparameter Selection Protocol**: Model hyperparameters (e.g. tree depth, estimator count, regularization) must **never** be tuned against the held-out test fold. Hyperparameters must be optimized strictly using inner nested cross-validation within the 4 training stations.
-- **Internal Cross-Station Evaluation vs. External Generalization**: 5-fold GroupKFold provides an **internal cross-station validation metric**, not an independent external test. **Robust claims of generalized real-world performance cannot be established from only 5 stations per language.** A statistically reliable generalization claim would require a benchmark corpus of **20–50+ diverse stations** spanning multiple regions, genres, bitrates, and broadcasting networks.
+  1. The specific station composition (which station is in test, which 4 in train).
+  2. Per-station results (metrics on each individual held-out test station).
+  3. The exact class counts and proportions (number and percentage of `ADVERTISEMENT` vs. `NON_ADVERTISEMENT` windows in train and test).
+  4. Aggregate summary metrics (mean and range across folds).
+- **Internal Cross-Station Evaluation vs. External Generalization**: 5-fold GroupKFold provides an **internal cross-station validation metric**, not an independent external test. Five stations per language are **insufficient for strong claims of broad real-world generalization**. While an expanded collection of 20–50+ diverse stations is noted as a future proposed planning target, this is an **informal engineering target**, not a proven statistical threshold.
 - **Impracticability of a Separate Locked Test Set**: With only 5 stations per language, holding out a locked test set of 1 or 2 stations would leave only 3 or 4 stations for training, severely impairing model training diversity. GroupKFold maximizes data utility while strictly preventing station leakage.
 
 #### 2. Temporal Leakage Prevention & Rationale on Purge Buffers
@@ -345,6 +382,6 @@ With 5 English stations and 5 Hindi stations (10 total stations in RadioRadar-10
 1. **RadioTalk**: Corrected to reflect that it is an ASR transcript corpus; claim of downloadable 16kHz WAV training snippets removed.
 2. **AudioSet**: Documented exact `Jingle (music)` clip count (1,438 total clips; ~4.0 hours), YouTube-origin scraping limitations, and distinction between jingles and all ads.
 3. **rvdmaazen**: Marked strictly as UNVERIFIED as a public dataset and removed from recommendations.
-4. **Data Splits & Purge Buffer Rigor**: Detailed 5-fold GroupKFold protocol across 5 stations per language (4 train, 1 test per fold), acknowledged small-sample variance, noted lack of class balance guarantee across folds, mandated reporting of fold station and class compositions, specified inner-loop hyperparameter tuning, noted that 20–50+ stations are needed for robust generalization, clarified that station-disjoint splits inherently prevent sample overlap (making arbitrary 30s buffers unjustified), and mathematically derived the $\ge 6.25\text{s}$ purge gap for within-station temporal splits.
-5. **Copyright & Legal Precision**: Cited Section 37(3)(c) and Section 52(1)(a)(i) of the Indian Copyright Act, 1957; clarified that fair dealing does not provide a blanket exemption for automated recording; refrained from offering legal advice or definitive legality claims; noted that feature matrices cannot be assumed non-reconstructible without testing due to phase reconstruction (Griffin-Lim) and neural vocoders; and stated that withholding raw audio does not eliminate all legal questions.
-6. **Languages**: Retracted generalizations comparing Western and Indian ad musicality; affirmed English and Hindi as separate evaluation groups and Tamil, Kannada, Punjabi strictly as conceptual UI placeholders.
+4. **Data Splits & GroupKFold Inner Validation**: Detailed 5-fold GroupKFold protocol across 5 stations per language (outer test on 1 station, training on 4); documented the severe limitations of inner validation with only 4 station groups; emphasized a small predeclared baseline comparison over excessive tuning; mandated per-station and class distribution reporting; removed unsupported ad percentages; noted that 20–50+ stations is an informal planning target rather than a proven statistical threshold; clarified that station-disjoint splits inherently prevent sample overlap (making arbitrary 30s buffers unjustified); and derived the $\ge 6.25\text{s}$ purge gap for within-station temporal splits.
+5. **Copyright, Section 39 & Feature Reconstruction**: Explicitly analyzed Section 37, Section 39(a)/(b)/(c), and Section 52(1)(a)(i) of the Indian Copyright Act, 1957; distinguished broadcast reproduction rights from underlying musical/literary/sound recording copyrights; clarified that Section 39(a) does not resolve underlying copyrights nor authorize public monitoring services; refrained from legal advice; corrected the feature reconstruction claim by explaining that Griffin-Lim and neural vocoders do not operate directly on time-aggregated 32-dim vectors; and noted that the vector's reconstructibility is an open empirical question rather than an established capability.
+6. **Languages & Binary Scope**: Retracted generalizations comparing Western and Indian ad musicality; affirmed English and Hindi as separate functional evaluation groups and Tamil, Kannada, Punjabi strictly as conceptual UI placeholders; and formally defined the binary MVP model target while preserving fine-grained annotation labels for slice diagnostics and quarantining uncertain samples.

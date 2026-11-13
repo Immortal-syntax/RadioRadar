@@ -53,17 +53,19 @@ Building a real-time internet radio advertisement detection platform on free-tie
   - **Jingles and Background Music in Ads**: Commercials featuring prominent pop tracks will appear acoustically as music to simple classifiers.
 - **Brutal Reality**:
   **Acoustic-only classifiers cannot achieve 99% accuracy across diverse radio genres.** Claims of near-perfect ad detection using basic acoustic features alone are scientifically invalid.
-- **Decomposition of Detection Latencies**:
-  Claims of "instantaneous" detection are misleading. The actual latency budget consists of four distinct phases:
-  1. *Audio Analysis Window (2.50s)*: The duration of contiguous raw PCM audio required to compute one representative 32-dim feature vector `[VERIFIED FACT]`.
-  2. *Prediction Interval (0.75s)*: The hop cadence at which the sliding window advances (70% frame overlap) `[VERIFIED FACT]`.
-  3. *Prediction Buffer Span (6 Frames)*: A 6-prediction buffer covers **6.25 seconds of continuous broadcast audio** across $3.75\text{ seconds}$ of elapsed prediction steps `[VERIFIED FACT]`. It must not be confused with 6 seconds of elapsed time.
-  4. *State Stabilization Delay (2.25 to 3.0s)*: The duration of sustained probabilistic consensus ($\ge 4$ agreeing frames) required by the hysteresis filter to confirm a state change `[ENGINEERING ESTIMATE]`.
-  5. *Actual Detection Latency (~7.8 to 11.6+ seconds)*: The true end-to-end duration from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected` `[UNMEASURED HYPOTHESIS]`. This sums stream server buffering (2-4s), network transit/pipe (1-2s), window accumulation (2.5s), and stabilization confirmation (2.25-3.0s).
+- **Decomposition of Detection Latencies: Pipeline Operations vs. Startup Delays**:
+  Claims of "instantaneous" detection are misleading. The actual latency budget consists of distinct operational phases:
+  1. *Initial Stream Startup & Buffer Prefill (Sequential on Startup)*: Connecting to the stream (~1-2s), booting FFmpeg (~0.5-1s), and accumulating the first 2.50s analysis window takes ~4.0 to 5.5s before the first prediction executes (state reports `Analyzing`).
+  2. *Broadcaster CDN & Transport Lag (Fixed Pipeline Offset)*: Radio audio arrives at the server with a ~2.0 to 5.0 second propagation offset from live over-the-air broadcast. This delay is an external broadcast distribution lag; it runs continuously in parallel and does not delay internal pipeline execution.
+  3. *Sliding Window Hop & Ingestion (Concurrent)*: Audio ingestion runs continuously in background. Every $H = 0.75\text{s}$, a 2.50s slice is evaluated. Feature extraction ($<20\text{ms}$) and inference ($<5\text{ms}$) run concurrently with ongoing stream ingestion.
+  4. *State Stabilization Delay (Sequential from Ad Onset)*: When an ad begins, the state machine requires a sustained consensus of $\ge 4$ consecutive predictions agreeing on the ad state. The elapsed confirmation delay is $(4 - 1) \times 0.75\text{s} = \mathbf{2.25\text{ seconds}}$ `[VERIFIED FACT]`.
+  5. *Internal Detector Response Time (Steady State)*: Following the window in which an ad begins, the internal detector confirms and broadcasts the state update in:
+     $$\text{Internal Response Time} \approx T_{\text{stabilize}} + T_{\text{extract}} + T_{\text{infer}} + T_{\text{ws}} \approx 2.25\text{s} + 0.02\text{s} + 0.005\text{s} + 0.10\text{s} \approx \mathbf{2.37\text{ seconds}} \quad \text{[ENGINEERING ESTIMATE]}$$
+  6. *Total Studio-to-UI Broadcast Lag*: The previously cited figure of **~7.8 to 11.6+ seconds** represents the cumulative delay from over-the-air studio broadcast to client screen update (CDN delay ~2–4s + network transit ~1–2s + window accumulation 2.5s + stabilization delay ~2.25–3.0s + client render ~0.1s). This range conflates external CDN broadcast delay with internal detector latency and is retained strictly as an **illustrative unmeasured hypothesis** that must be empirically benchmarked in Milestone 7. Adding all delays sequentially during ongoing monitoring is physically false.
 - **Architectural Mitigations**:
-  1. **Explicit "Uncertain" State**: When model confidence falls into the ambivalent range ($0.35 \le P \le 0.70$), the system emits `Uncertain` rather than oscillating between `Ad` and `No Ad`.
+  1. **Explicit "Uncertain" State**: When model confidence falls into the ambivalent range ($0.35 \le P \le 0.70$), the system emits `Uncertain` rather than oscillating between `Ad` and `No Ad`. In evaluation, `Uncertain` is reported as an explicit abstention class.
   2. **Multi-Frame Hysteresis State Machine**: Single-frame predictions are prohibited from triggering UI state transitions. Hysteresis requires consensus across $\ge 4$ consecutive predictions ($2.25\text{s}$ elapsed delay).
-  3. **Transparent Latency Reporting**: Document the realistic 7.8–11.6+ second detection latency to set accurate user expectations.
+  3. **Transparent Latency Reporting**: Document both the internal steady-state detector response (~2.37s) and the total broadcast-to-UI delay (~7.8–11.6+s) to set accurate expectations.
 
 ---
 
@@ -78,23 +80,27 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Architectural Mitigations**:
   1. **Rigorous Station-Level GroupKFold Validation (5 Folds Across 5 Stations)**:
      - Evaluate models using **5-fold GroupKFold cross-validation grouped strictly by `station_id`** (4 stations train, 1 station test per fold) independently for English and Hindi:
-       * *Small-Sample Uncertainty:* 5 station groups per language represents a small sample size with high statistical variance across folds.
-       * *Unbalanced Class Proportions:* GroupKFold groups by station, not class; because commercial ad density varies by format, folds will not have balanced class distributions.
-       * *Mandatory Reporting:* Report station composition and class counts/proportions for every fold.
-       * *Inner-Loop Tuning:* Hyperparameters must be tuned strictly via inner nested cross-validation on the 4 training stations, never on the test fold.
-       * *Internal CV vs. External Generalization:* 5-fold GroupKFold provides an internal cross-station evaluation, not an external test set. Robust claims of generalization require 20–50+ diverse stations.
-       * *Sample Constraint:* A separate locked test set is impractical with only 5 stations (leaving only 3–4 for training).
+       * *Outer Evaluation vs. Inner Selection:* In each fold, 1 station is the completely unseen test fold, and 4 stations train the model. Hyperparameters must be selected strictly within the 4 training stations.
+       * *Inner Validation Limitations:* With only 4 station groups available internally, inner cross-validation evaluates on only 1 held-out station at a time, resulting in high variance and noisy selection. Nested validation does not make the small dataset statistically robust.
+       * *Avoid Excessive Tuning:* Exhaustive hyperparameter grid searches across 4 stations risk overfitting to station acoustics. Predeclared, conservative baseline models are strongly preferred.
+       * *Small-Sample Uncertainty:* 5 station groups per language represents a small sample size with high statistical variance across folds. Do not fabricate confidence intervals or claim population uncertainty precision.
+       * *Unbalanced Class Proportions:* GroupKFold groups by station, not class. Because broadcast advertising density varies widely across stations, formats, countries, and time of day, GroupKFold does not guarantee balanced class distributions across folds. RadioRadar will measure actual class distributions in its own annotated recordings.
+       * *Mandatory Reporting:* Report station composition, per-station results, and exact class counts/proportions for every fold.
+       * *Internal CV vs. External Generalization:* 5-fold GroupKFold provides an internal cross-station evaluation, not an external test set. Five stations per language are insufficient for strong claims of broad real-world generalization. Expanding to 20–50+ stations is an informal proposed planning target, not a proven statistical threshold.
+       * *Sample Constraint:* A separate locked test set is impractical with 5 stations (leaving only 3–4 for training).
        * *Purge Buffers:* Station-disjoint folds inherently prevent sample overlap (making arbitrary 30s buffers unjustified for station-disjoint splits). For any temporal split within a single station, enforce a mathematically derived purge gap of $\ge 6.25\text{ seconds}$ ($W + (K-1) \times H$).
-  2. **Baseline Model Comparisons**:
+  2. **Binary Model Scope with Fine-Grained Slice Diagnostics**:
+     The MVP classifier is strictly **binary** (`ADVERTISEMENT` vs. `NON_ADVERTISEMENT`). Granular labels (`MUSIC`, `TALK`, `NEWS`, `OTHER`) are collapsed into `NON_ADVERTISEMENT` for training, but preserved for slice-based diagnostics to evaluate false alarm rates on speech and miss rates on music. Ground-truth `UNCERTAIN` annotations are quarantined and reported separately.
+  3. **Small Predeclared Baseline Model Comparisons**:
      Evaluate the primary model against:
      - Majority-class / Dummy classifier (lower bound).
      - Regularized Logistic Regression (linear baseline).
-     - Tree-based models (Random Forest, HistGradientBoosting).
-  3. **Comprehensive Metric Reporting**:
-     Evaluate using precision, recall, macro F1-score, and full confusion matrices, with specific breakdown for speech vs. commercial confusion.
-  4. **Per-Language Evaluation**:
+     - Shallow Random Forest (`max_depth=6..8`, `n_estimators=30..50`) vs. HistGradientBoosting.
+  4. **Comprehensive Metric Reporting**:
+     Evaluate using precision, recall, macro F1-score, PR-AUC, ROC-AUC, and full confusion matrices, with specific breakdown for speech vs. commercial confusion and explicit reporting of abstentions.
+  5. **Per-Language Evaluation**:
      Assess performance separately on English and Hindi/Hinglish broadcast samples to measure acoustic generalization independently.
-  5. **Systematic False-Positive Analysis**:
+  6. **Systematic False-Positive Analysis**:
      Specifically evaluate false positive rates on pure speech datasets (talk radio, news bulletins) to measure speech-to-ad confusion.
 
 ---
@@ -159,16 +165,29 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Severity**: **Medium**
 - **Probability**: **Low**
 - **Root Cause**:
-  Radio broadcasts contain copyrighted musical works and proprietary broadcast content.
+  Radio broadcasts contain copyrighted musical works, sound recordings, and proprietary broadcast signals.
 - **Legal Reality & Analysis**:
+
+> [!CAUTION]
+> **Legal Disclaimer**: This section provides technical and architectural analysis of intellectual property and broadcast regulations for research purposes. It does **not** constitute legal advice, nor does it provide a definitive legal determination regarding the project's recording practices under applicable jurisdictions.
+
   1. **Reduced Redistribution Exposure (Not Absolute Immunity)**:
      Having the user's browser connect directly to the radio station's official stream URL avoids routing audio bytes through RadioRadar servers, substantially reducing copyright redistribution exposure. However, **this does NOT grant automatic, blanket, or complete legal or DMCA immunity**.
   2. **Station Terms of Service & Hotlinking**:
      Broadcasters and stream CDNs may have terms of service prohibiting hotlinking, unauthorized inline embedding, or automated content monitoring. Providers may enforce referrer checks or geoblocking.
-  3. **Broadcast Reproduction Rights under Indian & International Law**:
-     In India, **Section 37 of the Copyright Act, 1957** grants broadcasting organizations an exclusive Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Under **Section 37(3)(c)**, making any sound recording of a broadcast without a license constitutes infringement. Section 52(1)(a)(i) statutory fair dealing for private/research use cannot be assumed to provide a blanket exemption for automated recording, and does not provide legal advice or definitive determinations of legality.
-  4. **Dataset Redistribution Prohibitions & Feature Invertibility Nuance**:
-     RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files (`.wav` or `.mp3`). Furthermore, derived numerical feature matrices cannot be assumed to be definitively non-reconstructible without empirical verification, as phase reconstruction (Griffin-Lim) and neural vocoders (MelGAN/HiFi-GAN) can partially invert mel representations. Withholding raw audio does not eliminate all legal questions regarding broadcast fixation or data governance.
+  3. **Broadcast Reproduction Rights & Statutory Exceptions under Indian Law (Sections 37 & 39)**:
+     - In India, **Section 37 of the Copyright Act, 1957** grants broadcasting organizations an exclusive statutory "Broadcast Reproduction Right" for 25 years `[VERIFIED FACT]`. Under **Section 37(3)(c)**, making any sound recording of a broadcast without a license constitutes statutory infringement.
+     - **Section 39 Statutory Exceptions**: Section 39 specifically provides that no broadcast reproduction right is infringed by:
+       * **Section 39(a)**: Making any sound recording for private use or solely for bona fide teaching or research.
+       * **Section 39(b)**: Fair dealing use of excerpts for reporting, review, teaching, or research.
+       * **Section 39(c)**: Other acts that do not constitute copyright infringement under Section 52.
+     - **Crucial Legal Distinctions**:
+       * *Broadcast Rights vs. Underlying Works:* Section 39 limits *only* the broadcast reproduction right. **Section 39(a) does NOT automatically resolve or license copyright claims held by underlying copyright owners** (music labels, composers, publishers).
+       * *Underlying Copyrights (Section 52(1)(a)(i)):* Fair dealing for private research under Section 52(1)(a)(i) is statutory and narrow. It cannot be assumed that every academic recording automatically qualifies as lawful.
+       * *Research Fixation vs. Public Service:* While making private research recordings for model training may align with Section 39(a) and 52(1)(a)(i), this does **not** authorize deploying a public operational monitoring service or commercial feed.
+  4. **Dataset Redistribution Prohibitions & Feature Reconstructibility Nuance**:
+     - RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files (`.wav` or `.mp3`).
+     - *Feature Reconstructibility Nuance:* Previous suggestions that Griffin-Lim or neural vocoders directly invert the 32-dim feature vector were inaccurate: Griffin-Lim requires a 2D magnitude spectrogram, and neural vocoders require a time-resolved mel sequence. However, because future conditional generative models could approximate acoustic textures, the vector's reconstructibility is an **unmeasured, open empirical question**, not an established fact. Do not claim the vector is either perfectly reconstructible or provably non-reconstructible. Withholding raw audio does not eliminate all legal questions regarding broadcast fixation or data governance.
   5. **Need for Legal Review**:
      Prior to any commercial deployment or public scaling beyond educational research, a formal legal review is required. This risk assessment does not constitute legal advice.
 
