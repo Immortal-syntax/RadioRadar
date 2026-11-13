@@ -190,15 +190,25 @@ To prevent misleading claims regarding "real-time" performance, the architectura
 | **Actual Detection Latency** | **Total end-to-end elapsed time** from when an ad begins playing in the radio broadcast until the client UI displays `Advertisement detected`. | **~7.8 to 11.6+ seconds** `[UNMEASURED HYPOTHESIS]` | Sums stream server buffering (2-4s), network transit/jitter (1-2s), window accumulation (2.5s), and stabilization confirmation (2.25-3.0s). |
 
 #### Explicit Acoustic Feature Vector (Exact 32 Dimensions):
+
+> [!NOTE]
+> **Architectural Specification Notice**: The feature extraction pipeline described below is an architectural specification designed for implementation in Milestone 3. It does not represent already executed or benchmarked code.
+
+The analysis window comprises $W = 2.50\text{ seconds}$ ($40,000\text{ samples}$ at 16 kHz mono) `[VERIFIED FACT]`.
+- **Sub-Framing & STFT Protocol**: Short-Time Fourier Transform is computed with $N_{\text{fft}} = 512\text{ samples}$ ($32\text{ ms}$), $N_{\text{hop}} = 256\text{ samples}$ ($16\text{ ms}$ hop, 50% overlap), and a periodic Hann window, generating 155 sub-frames per 2.5s window.
+- **Aggregation**: Sub-frame spectral features (MFCCs, Spectral Centroid, Spectral Rolloff 85%, Spectral Flatness) are summarized as the arithmetic mean across the 155 sub-frames. Delta MFCCs are computed via regression window over sub-frames and averaged.
+- **Global Time-Domain Metrics**: Log RMS Energy and Zero-Crossing Rate are computed globally across all 40,000 samples.
+- **Micro-Pause / Silence Fraction**: Computed across 50 non-overlapping 50ms sub-blocks (800 samples each), thresholded at $-30.0\text{ dBFS}$ relative to 1.0 RMS digital full scale ($20 \log_{10}(\text{RMS}) < -30.0$), reporting the ratio of silent sub-blocks to 50 total.
+
 Every scalar feature in the 32-dimensional vector is explicitly defined:
-1. **Static MFCCs (Indices 0–12, 13 features)**: 13 Mel-Frequency Cepstral Coefficients ($c_0$ to $c_{12}$) computed via DCT over 26 Mel filter banks `[VERIFIED FACT]`.
-2. **Delta MFCCs (Indices 13–25, 13 features)**: 13 First-order temporal derivatives of MFCCs measuring dynamic rate of change `[VERIFIED FACT]`.
-3. **Log RMS Energy (Index 26, 1 feature)**: Logarithmic short-term signal energy measuring broadcast dynamic compression `[VERIFIED FACT]`.
-4. **Zero-Crossing Rate (Index 27, 1 feature)**: Average sign-change rate per frame separating unvoiced speech from harmonic tones `[VERIFIED FACT]`.
-5. **Spectral Centroid (Index 28, 1 feature)**: Center of spectral mass measuring audio brightness `[VERIFIED FACT]`.
-6. **Spectral Rolloff (Index 29, 1 feature)**: Frequency below which 85% of spectral magnitude concentrates `[VERIFIED FACT]`.
-7. **Spectral Flatness (Index 30, 1 feature)**: Wiener entropy ratio of power spectrum measuring tonality vs. noise `[VERIFIED FACT]`.
-8. **Micro-Pause Ratio (Index 31, 1 feature)**: Fraction of 50ms sub-frames with energy $< -30\text{ dBFS}$ `[VERIFIED FACT]`.
+1. **Static MFCCs (Indices 0–12, 13 features)**: Mean across 155 sub-frames of 13 Mel-Frequency Cepstral Coefficients ($c_0$ to $c_{12}$) computed via DCT over 26 Mel filter banks `[VERIFIED FACT]`.
+2. **Delta MFCCs (Indices 13–25, 13 features)**: Mean across sub-frames of 13 First-order temporal derivatives of MFCCs measuring dynamic rate of change `[VERIFIED FACT]`.
+3. **Log RMS Energy (Index 26, 1 feature)**: Global window logarithmic short-term signal energy measuring broadcast dynamic compression `[VERIFIED FACT]`.
+4. **Zero-Crossing Rate (Index 27, 1 feature)**: Global window average sign-change rate per frame separating unvoiced speech from harmonic tones `[VERIFIED FACT]`.
+5. **Spectral Centroid (Index 28, 1 feature)**: Mean center of spectral mass across 155 sub-frames measuring audio brightness `[VERIFIED FACT]`.
+6. **Spectral Rolloff (Index 29, 1 feature)**: Mean frequency below which 85% of spectral magnitude concentrates across 155 sub-frames `[VERIFIED FACT]`.
+7. **Spectral Flatness (Index 30, 1 feature)**: Mean Wiener entropy ratio of power spectrum measuring tonality vs. noise across 155 sub-frames `[VERIFIED FACT]`.
+8. **Micro-Pause Ratio (Index 31, 1 feature)**: Ratio of silent 50ms sub-blocks (RMS $< -30.0\text{ dBFS}$) to 50 total sub-blocks `[VERIFIED FACT]`.
 
 $$\text{Total Feature Vector Dimension} = 13 + 13 + 1 + 1 + 1 + 1 + 1 + 1 = \mathbf{32\text{ scalar features}} \quad \text{[VERIFIED FACT]}$$
 
@@ -240,7 +250,14 @@ graph LR
      * Regularized Logistic Regression (minimal CPU/memory footprint).
      * Random Forest vs. Gradient Boosted Trees (LightGBM/HistGradientBoosting).
    - *Dataset Requirements:* A verified, manually labeled radio audio dataset must be collected across functional target languages (**English**, **Hindi**) before training. Conceptual UI languages (**Tamil**, **Kannada**, **Punjabi**) have zero ML models and zero detection claims.
-   - *Evaluation Rigor:* Models must be evaluated using **GroupKFold cross-validation grouped strictly by station ID** (to prevent station-level acoustic leakage) reporting:
+   - *Evaluation Rigor (5-Fold GroupKFold Across 5 Stations):* Models must be evaluated using **5-fold GroupKFold cross-validation grouped strictly by station ID** (4 stations train, 1 station test per fold):
+     * *Small-Sample Uncertainty:* Evaluating across only 5 station groups per language represents a small sample size with high statistical variance across folds.
+     * *Unbalanced Class Proportions:* GroupKFold groups by station, not class. Because broadcast formats vary in ad density, GroupKFold does not guarantee balanced class distributions across folds.
+     * *Mandatory Fold Reporting:* Reporting station composition and exact class counts/proportions for every fold is required.
+     * *Inner-Loop Hyperparameter Tuning:* Hyperparameters must be selected strictly through inner nested cross-validation on the 4 training stations, never tuned on the held-out test fold.
+     * *Internal CV vs. External Generalization:* 5-fold GroupKFold is an internal cross-station evaluation, not an external test. Robust claims of real-world generalization require a benchmark corpus of 20–50+ diverse stations.
+     * *Sample Constraint:* A separate locked test set is impractical with 5 stations (leaving only 3–4 for training).
+     * *Purge Buffers:* Station-disjoint folds inherently prevent sample overlap (making arbitrary 30s buffers unjustified for station-disjoint splits). If continuous audio from a single station is ever partitioned temporally, a mathematically derived purge gap of $\ge 6.25\text{ seconds}$ ($W + (K-1) \times H$) must be enforced.
      * Precision, Recall, and F1-score (macro and per-class).
      * Confusion matrices highlighting speech vs. commercial confusion.
      * Per-language evaluation to measure cross-lingual acoustic generalization independently on English and Hindi.
@@ -270,12 +287,12 @@ RadioRadar does not proxy, transcode, or syndicate live audio streams to clients
 2. **Broadcaster Terms of Service & Hotlinking**:
    - Individual radio stations and stream content delivery networks (CDNs) may maintain terms of service restricting unauthorized embedding, inline linking ("hotlinking"), or automated monitoring of their stream endpoints.
    - Stream providers may employ geoblocking or session-based referrer checks to prevent external clients from connecting directly.
-3. **Broadcast Reproduction Rights & Indian / International Law**:
-   - In India, Section 37 of the Copyright Act, 1957 grants broadcasters a special Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Section 52 fair dealing exemptions are strictly statutory and narrower than US common-law fair use.
-   - While transient in-memory feature extraction avoids creating persistent copies on disk, automated recording and analysis of live broadcast signals without a license carries legal uncertainty under regional broadcast laws.
-   - RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files.
+3. **Broadcast Reproduction Rights under Indian & International Law**:
+   - In India, **Section 37 of the Copyright Act, 1957** grants broadcasting organizations an exclusive Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Under **Section 37(3)(c)**, making any sound recording of a broadcast without a license constitutes infringement.
+   - Section 52(1)(a)(i) fair dealing for private/research use cannot be assumed to provide a blanket exemption for automated recording, and does not provide legal advice or definitive determinations of legality.
+   - **Feature Vector Invertibility Nuance:** While RadioRadar never redistributes raw audio (`.wav` or `.mp3`), numerical feature matrices cannot be assumed to be definitively non-reconstructible without empirical verification, as phase reconstruction (Griffin-Lim) and neural vocoders (MelGAN/HiFi-GAN) can partially invert mel representations. Withholding raw audio does not automatically eliminate all legal questions regarding broadcast fixation or data governance.
 4. **Requirement for Formal Legal Review**:
-   - Prior to any commercial operation, production scaling, or public distribution beyond educational research, RadioRadar requires formal legal review regarding DMCA safe-harbor compliance, Indian Section 37 broadcast rights, and station terms of service.
+   - Prior to any commercial operation, production scaling, or public distribution beyond educational research, RadioRadar requires formal legal review regarding DMCA safe-harbor compliance, Indian Section 37 broadcast rights, and station terms of service. This architectural specification does not constitute legal advice.
 
 ---
 
@@ -348,8 +365,8 @@ Clients establish a single WebSocket connection and multiplex up to 3 station su
 ## 5. Deployment Architecture & Render Free-Tier Feasibility
 
 ### 5.1. Render Free Tier Target Specifications
-- **Physical Memory**: 512 MB strict ceiling (Linux kernel OOM killer terminates instance immediately upon exceeding).
-- **CPU Allocation**: **0.1 fractional vCPU** (shared, heavily throttled).
+- **Physical Memory**: 512 MB strict ceiling (Source: Render Official Documentation, "Instance Types and Pricing", `https://render.com/docs/free`) `[VERIFIED FACT]`. (Linux kernel OOM killer terminates instance immediately upon exceeding).
+- **CPU Allocation**: **0.1 fractional vCPU** (shared, heavily throttled). Render enforces this via Linux cgroups Completely Fair Scheduler (CFS) quotas allocating 10% of CPU time slices on a shared physical core, rather than downclocking host processor clock speed `[VERIFIED FACT]`.
 - **Inactivity Spin-Down**: Automatically spins down after **15 minutes of inactivity**.
   - *Activity Definition:* Inactivity is determined by inbound HTTP requests or incoming WebSocket messages.
   - *WebSocket Behavior:* **Open WebSocket connections alone should NOT be assumed to prevent spin-down** if the client is merely receiving data and sending zero inbound frames. Clients must actively send ping messages to register activity.

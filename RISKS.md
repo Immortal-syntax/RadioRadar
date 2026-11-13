@@ -27,9 +27,9 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Severity**: **Critical**
 - **Probability**: **High**
 - **Root Cause**:
-  Render's free tier imposes two severe hardware constraints:
+  Render's free tier imposes two severe hardware constraints (Source: Render Official Documentation, "Instance Types and Pricing", `https://render.com/docs/free`) `[VERIFIED FACT]`:
   1. A strict **512 MB physical RAM ceiling** (the Linux kernel OOM killer immediately terminates the container if breached).
-  2. A heavily throttled **0.1 fractional vCPU allocation**.
+  2. A heavily throttled **0.1 fractional vCPU allocation**, enforced via Linux cgroups Completely Fair Scheduler (CFS) quotas allocating 10% of CPU time slices on a shared physical core, rather than downclocking host processor clock speed.
   - Traditional Python audio ML stacks that rely on `librosa` load heavy dependencies (`numba`, `llvmlite`, `matplotlib`, `scipy`) that consume an estimated **120MB+** upon import alone.
   - Spawning three FFmpeg decoding processes introduces operating system process overhead, pipe buffering, and IPC context-switching costs. On a 0.1 vCPU allocation, multiple concurrent decoding processes and feature extraction loops can cause CPU starvation, causing FFmpeg stdout pipes to back up and audio frames to lag behind real time.
 - **Brutal Reality**:
@@ -76,8 +76,15 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Brutal Reality**:
   **Model accuracy cannot be assumed, and datasets cannot be fabricated.** Initial Random Forest configurations are merely an illustrative starting baseline, not a finalized design.
 - **Architectural Mitigations**:
-  1. **Station-Level GroupKFold Validation**:
-     Evaluate models using 5-fold GroupKFold cross-validation grouped strictly by `station_id` to prevent station-specific acoustic profile leakage across splits.
+  1. **Rigorous Station-Level GroupKFold Validation (5 Folds Across 5 Stations)**:
+     - Evaluate models using **5-fold GroupKFold cross-validation grouped strictly by `station_id`** (4 stations train, 1 station test per fold) independently for English and Hindi:
+       * *Small-Sample Uncertainty:* 5 station groups per language represents a small sample size with high statistical variance across folds.
+       * *Unbalanced Class Proportions:* GroupKFold groups by station, not class; because commercial ad density varies by format, folds will not have balanced class distributions.
+       * *Mandatory Reporting:* Report station composition and class counts/proportions for every fold.
+       * *Inner-Loop Tuning:* Hyperparameters must be tuned strictly via inner nested cross-validation on the 4 training stations, never on the test fold.
+       * *Internal CV vs. External Generalization:* 5-fold GroupKFold provides an internal cross-station evaluation, not an external test set. Robust claims of generalization require 20–50+ diverse stations.
+       * *Sample Constraint:* A separate locked test set is impractical with only 5 stations (leaving only 3–4 for training).
+       * *Purge Buffers:* Station-disjoint folds inherently prevent sample overlap (making arbitrary 30s buffers unjustified for station-disjoint splits). For any temporal split within a single station, enforce a mathematically derived purge gap of $\ge 6.25\text{ seconds}$ ($W + (K-1) \times H$).
   2. **Baseline Model Comparisons**:
      Evaluate the primary model against:
      - Majority-class / Dummy classifier (lower bound).
@@ -133,7 +140,7 @@ Building a real-time internet radio advertisement detection platform on free-tie
 - **Severity**: **Medium**
 - **Probability**: **High**
 - **Root Cause**:
-  Render free web services operate under specific operational rules:
+  Render free web services operate under specific operational rules (Source: Render Official Documentation, `https://render.com/docs/free`) `[VERIFIED FACT]`:
   1. **15-Minute Inactivity Spin-Down**: Services sleep after 15 minutes of inactivity. Inactivity is determined by incoming HTTP requests or incoming WebSocket messages. **Open, idle WebSocket TCP connections alone should NOT be assumed to prevent spin-down**.
   2. **~50-60 Second Cold Starts**: Waking a sleeping container takes approximately one minute.
   3. **Ephemeral Local Filesystem**: All local disk modifications, including SQLite database files, are completely wiped upon redeploy or sleep cycle.
@@ -158,12 +165,12 @@ Building a real-time internet radio advertisement detection platform on free-tie
      Having the user's browser connect directly to the radio station's official stream URL avoids routing audio bytes through RadioRadar servers, substantially reducing copyright redistribution exposure. However, **this does NOT grant automatic, blanket, or complete legal or DMCA immunity**.
   2. **Station Terms of Service & Hotlinking**:
      Broadcasters and stream CDNs may have terms of service prohibiting hotlinking, unauthorized inline embedding, or automated content monitoring. Providers may enforce referrer checks or geoblocking.
-  3. **Broadcast Reproduction Rights & Indian / International Law**:
-     In India, Section 37 of the Copyright Act, 1957 grants broadcasters a special Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Section 52 fair dealing exemptions are strictly statutory and narrow. While transient in-memory analysis avoids creating persistent disk copies, automated recording and analysis of live broadcast signals without a license carries legal uncertainty under regional broadcast laws.
-  4. **Dataset Redistribution Prohibitions**:
-     RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files (`.wav` or `.mp3`). Only derived, non-reconstructible numerical feature matrices and annotation metadata may be shared for academic reproducibility.
+  3. **Broadcast Reproduction Rights under Indian & International Law**:
+     In India, **Section 37 of the Copyright Act, 1957** grants broadcasting organizations an exclusive Broadcast Reproduction Right for 25 years `[VERIFIED FACT]`. Under **Section 37(3)(c)**, making any sound recording of a broadcast without a license constitutes infringement. Section 52(1)(a)(i) statutory fair dealing for private/research use cannot be assumed to provide a blanket exemption for automated recording, and does not provide legal advice or definitive determinations of legality.
+  4. **Dataset Redistribution Prohibitions & Feature Invertibility Nuance**:
+     RadioRadar will never publicly redistribute, host, or syndicate raw recorded broadcast audio files (`.wav` or `.mp3`). Furthermore, derived numerical feature matrices cannot be assumed to be definitively non-reconstructible without empirical verification, as phase reconstruction (Griffin-Lim) and neural vocoders (MelGAN/HiFi-GAN) can partially invert mel representations. Withholding raw audio does not eliminate all legal questions regarding broadcast fixation or data governance.
   5. **Need for Legal Review**:
-     Prior to any commercial deployment or public scaling beyond educational research, a formal legal review is required.
+     Prior to any commercial deployment or public scaling beyond educational research, a formal legal review is required. This risk assessment does not constitute legal advice.
 
 ---
 

@@ -38,7 +38,7 @@ gantt
 | **5 Monitoring States + Hysteresis** | **MVP** | Stabilizes output states (`Ad`, `No Ad`, `Analyzing`, `Uncertain`, `Unavailable`). |
 | **WebSocket Real-time Broadcasting** | **MVP** | Pushes state updates; requires client ping messages to signal activity on Render. |
 | **HTML5 Direct Stream Player** | **MVP** | Client connects directly to origin stream; reduces redistribution liability. |
-| *Speech-to-Text / Whisper ASR* | *Deferred* | Incompatible with 512MB RAM and 0.1 CPU free-tier environment. |
+| *Speech-to-Text / Whisper ASR* | *Deferred* | Incompatible with 512MB RAM and 0.1 vCPU (10% CFS quota) free-tier envelope [HYPOTHESIS]. |
 | *Audio Fingerprinting (ACR)* | *Deferred* | Requires maintaining an external reference database of commercial jingles. |
 | *User Authentication & Accounts* | *Deferred* | Unnecessary complexity for open-source public utility MVP. |
 | *Multi-Node Distributed Scaling* | *Deferred* | Out of scope for single-container free-tier deployment. |
@@ -154,11 +154,11 @@ gantt
 - **Objective**: Establish the machine learning evaluation pipeline, train an initial baseline model against defined comparisons, and implement temporal hysteresis.
 - **Features**:
   - Documented protocol for audio sample collection across functional target languages (**English**, **Hindi**), treating **Tamil**, **Kannada**, and **Punjabi** strictly as conceptual UI placeholders.
-  - GroupKFold cross-validation grouped strictly by station ID (preventing station-level and temporal overlap leakage).
+  - 5-fold GroupKFold cross-validation grouped strictly by station ID (4 train, 1 test per fold; reporting fold station and class distributions; inner-loop tuning; mathematically derived $\ge 6.25\text{s}$ purge buffer for within-station temporal splits).
   - Baseline model comparisons: Majority-class baseline, Logistic Regression, and Random Forest / HistGradientBoosting.
   - Moving-window probability buffer (last 6 frames covering 6.25s audio span across 3.75s step time) with asymmetric hysteresis thresholds.
   - Explicit 5-state lifecycle management (`Advertisement detected`, `No advertisement detected`, `Analyzing`, `Uncertain`, `Unavailable`).
-  - Distinction between state stabilization delay (2.25-3.0s) and actual end-to-end detection latency (~7.8-11.6+ s).
+  - Distinction between state stabilization delay (2.25-3.0s) and actual end-to-end detection latency (~7.8-11.6+ s [UNMEASURED HYPOTHESIS]).
 - **Files / Modules Involved**:
   - `backend/app/ml/classifier.py` (Model loader and inference wrapper)
   - `backend/app/ml/hysteresis.py` (Temporal smoothing and state transitions)

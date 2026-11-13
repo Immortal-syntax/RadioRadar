@@ -236,17 +236,23 @@ Previous drafts asserted that Western radio advertisements have less musical con
 Previous documentation claimed that ephemeral recording of public radio streams for machine learning analysis automatically qualifies as transformative fair use. **This blanket claim was legally unsupported and is formally retracted.**
 
 ### 5.2. Legal & Regulatory Considerations
-1. **Broadcast Reproduction Rights & Neighboring Rights**:
-   - In India, **Section 37 of the Copyright Act, 1957** grants broadcasters a special "Broadcast Reproduction Right" for 25 years `[VERIFIED FACT]`. Unauthorized recording, reproduction, or communication to the public of broadcasts can constitute infringement.
-   - Section 52(1)(a)(i) provides statutory fair dealing exemptions for "private or personal use, including research" `[VERIFIED FACT]`. However, Indian fair dealing is statutory and narrower than US common-law fair use (17 U.S.C. § 107).
-   - International broadcasting treaties (e.g., the Rome Convention) similarly protect broadcast signals against unauthorized fixation and distribution.
-2. **Dataset Redistribution Restrictions**:
-   - **RadioRadar will NOT publicly redistribute, host, or publish raw recorded broadcast audio files (`.wav` or `.mp3`).** Redistributing recorded third-party broadcasts without an express license from broadcasters and sound recording copyright holders carries direct copyright liability.
-   - Only derived, non-reconstructible numerical feature vectors (e.g., normalized 32-dimensional NumPy arrays) and timestamp annotation metadata may be published for research reproducibility.
-3. **Broadcaster Terms of Service**:
-   - Web stream endpoints may be subject to Terms of Service prohibiting automated scraping, harvesting, or offline caching.
-4. **Legal Conclusion**:
-   - Private research experimentation on transient broadcasts does not provide commercial or public operational immunity. Formal legal review is required prior to any public deployment.
+
+> [!CAUTION]
+> **Legal Disclaimer**: This section provides technical and architectural context regarding intellectual property and broadcast regulations for research purposes. It does **not** constitute legal advice, nor does it provide a definitive determination of legality under applicable jurisdictions.
+
+1. **Broadcast Reproduction Rights under Indian Law (Section 37)**:
+   - In India, **Section 37 of the Copyright Act, 1957** grants every broadcasting organization an exclusive "Broadcast Reproduction Right" lasting 25 years from the broadcast year `[VERIFIED FACT]`.
+   - Specifically, under **Section 37(3)(c)**, any person who, without the broadcaster's license, *"makes any sound recording or visual recording of the broadcast"* is deemed to infringe this statutory right.
+   - **Fair Dealing Exceptions (Section 52(1)(a)(i))**: Section 52(1)(a)(i) provides statutory fair dealing exemptions for *"private or personal use, including research"* `[VERIFIED FACT]`. However, this statutory exemption cannot be assumed to provide a blanket immunity for all automated broadcast recording or systematic dataset curation. Furthermore, fair dealing in India is strictly codified and does not offer the flexible, common-law scope of US fair use (17 U.S.C. § 107).
+   - International treaties (e.g., the Rome Convention for the Protection of Performers, Producers of Phonograms and Broadcasting Organisations) similarly establish neighboring rights against unauthorized fixation of broadcast signals.
+2. **Dataset Redistribution Restrictions & Feature Vector Invertibility**:
+   - **Prohibition on Raw Audio Distribution**: **RadioRadar will NOT publicly redistribute, host, or publish raw recorded broadcast audio files (`.wav` or `.mp3`).** Redistributing third-party broadcasts without explicit licensing from broadcasters, composers, and recording artists carries direct copyright infringement exposure.
+   - **Nuance on Feature Vector Invertibility**: While RadioRadar intends to publish only numerical feature matrices (e.g., normalized 32-dimensional feature tables) and timestamp metadata for research reproducibility, **these feature matrices cannot be definitively labeled "non-reconstructible" without empirical verification**. Modern phase-reconstruction algorithms (such as the Griffin-Lim algorithm) and neural vocoders (e.g., MelGAN, HiFi-GAN) can partially invert mel-frequency representations to reconstruct recognizable speech, speaker characteristics, or music melodies.
+   - **Withholding Raw Audio Does Not Eliminate All Legal Questions**: While withholding raw audio avoids direct sound recording redistribution, it does not automatically eliminate all legal questions regarding broadcast fixation, commercial terms of service, or personality rights.
+3. **Broadcaster Terms of Service & Stream Access**:
+   - Web stream endpoints often include Terms of Service prohibiting automated scraping, caching, or monitoring. Broadcasters may enforce technical restrictions such as geoblocking or tokenized session parameters.
+4. **Governance Conclusion**:
+   - Transient in-memory analysis does not confer commercial operational immunity. A formal legal review is mandatory before any public deployment or production scaling.
 
 ---
 
@@ -290,32 +296,37 @@ Contiguous, non-overlapping intervals labeled in Audacity or via Python labeling
 ```
 
 ### 6.3. Rigorous Evaluation Strategy & Data Split Protocol
-The previous proposal contained a contradiction: it proposed using validation samples from training stations while claiming station-level separation. This is corrected as follows:
 
 ```mermaid
 graph TD
     subgraph "Station-Level Grouping (GroupKFold)"
-        AllStations[10 Stations: 5 EN, 5 HI] --> SplitLogic{Evaluation Strategy}
-        SplitLogic --> OptA[Option A: 3 Train / 1 Val / 1 Test per Language]
-        SplitLogic --> OptB[Option B: 5-Fold GroupKFold by Station]
+        AllStations[10 Stations: 5 EN, 5 HI] --> SplitLogic{Evaluation Protocol}
+        SplitLogic --> FixedSplit["Fixed Split (3 Train / 1 Val / 1 Test)<br/>Severely underpowered: 1 test station"]
+        SplitLogic --> GroupKFold["5-Fold GroupKFold by Station<br/>Every station rotated as held-out test fold"]
     end
-    
-    OptA --> LimitNotice["Limitation: 1 Station Test Sample Size is Small!"]
-    OptB --> RobustEval["Robust: Every station rotated as unseen test fold"]
 ```
 
-1. **Disjoint Station Grouping**:
-   - Training, validation, and test splits **must be grouped strictly by station ID**.
-   - Stations in the test set must **never** appear in the training or validation sets.
-2. **Sample-Size Limitation Acknowledgment**:
-   - With 5 stations per language, a fixed split (3 train, 1 validation, 1 test) results in only **1 test station per language**. This small sample size risks evaluation bias if that single station has idiosyncratic acoustic properties `[VERIFIED FACT]`.
-3. **Recommended Cross-Validation Protocol: GroupKFold**:
-   - To overcome the 1-station test limitation, RadioRadar will implement **5-fold GroupKFold cross-validation** grouped by `station_id` independently for English and Hindi.
-   - In each fold, 4 stations are used for training (with internal validation) and 1 station serves as the completely unseen test fold, rotating until every station has served as an out-of-sample test set.
-4. **Prevention of Temporal Leakage**:
-   - Audio from the same station must never be split randomly across frames.
-   - Adjacent sliding windows (which share 1.75s of overlapping audio) must never cross split boundaries.
-   - A minimum 30-second purge buffer is enforced between continuous broadcast sessions.
+#### 1. Detailed Five-Fold GroupKFold Protocol
+With 5 English stations and 5 Hindi stations (10 total stations in RadioRadar-10h):
+- **Mechanics of 5-Fold GroupKFold**: Evaluated independently for English and Hindi using **5-fold GroupKFold**, where all data is grouped strictly by `station_id` `[VERIFIED FACT]`. In each fold:
+  - **4 stations are used for training** (with internal nested cross-validation or tuning folds for hyperparameter selection).
+  - **1 held-out station is used for testing**.
+  Across the 5 folds, each station serves as the unseen test fold exactly once.
+- **Small-Sample Uncertainty**: Evaluating on only 5 station groups per language represents a small sample size. Performance metrics will exhibit substantial statistical variance across folds, which must be reported transparently as per-fold results and confidence intervals.
+- **Unbalanced Class Distributions Across Folds**: GroupKFold groups samples by station, **not by target class**. Broadcast formats differ substantially in commercial density (e.g. music radio with 20% ads vs. talk radio with 10% ads vs. non-commercial public radio with 0% ads). Consequently, **GroupKFold does NOT guarantee balanced class distributions across folds**.
+- **Mandatory Reporting Requirements**: For every fold, the evaluation report must detail:
+  1. The exact station composition (which station is in test, which 4 in train).
+  2. The exact class counts and proportions (number and percentage of `ADVERTISEMENT` vs. `NON_ADVERTISEMENT` windows in train and test).
+- **Hyperparameter Selection Protocol**: Model hyperparameters (e.g. tree depth, estimator count, regularization) must **never** be tuned against the held-out test fold. Hyperparameters must be optimized strictly using inner nested cross-validation within the 4 training stations.
+- **Internal Cross-Station Evaluation vs. External Generalization**: 5-fold GroupKFold provides an **internal cross-station validation metric**, not an independent external test. **Robust claims of generalized real-world performance cannot be established from only 5 stations per language.** A statistically reliable generalization claim would require a benchmark corpus of **20–50+ diverse stations** spanning multiple regions, genres, bitrates, and broadcasting networks.
+- **Impracticability of a Separate Locked Test Set**: With only 5 stations per language, holding out a locked test set of 1 or 2 stations would leave only 3 or 4 stations for training, severely impairing model training diversity. GroupKFold maximizes data utility while strictly preventing station leakage.
+
+#### 2. Temporal Leakage Prevention & Rationale on Purge Buffers
+- **Station-Disjoint Folds Inherently Eliminate Sample Overlap**: When splits are station-disjoint (where each station belongs 100% to train or 100% to test), **no audio samples from that station can ever cross split boundaries**. In this setting, enforcing an arbitrary 30-second purge buffer between recording blocks is **scientifically unjustified**, as complete station separation already guarantees zero sample overlap.
+- **Temporal Leakage Mechanism (Within-Station Splits)**: Temporal leakage arises only when continuous broadcast audio from a single station is partitioned across splits (e.g. during internal train/validation tuning within the 4 training stations). Because sliding windows of duration $W = 2.50\text{s}$ advance by hop $H = 0.75\text{s}$, adjacent windows share $W - H = 1.75\text{ seconds}$ of raw audio.
+- **Mathematically Derived Purge Gap**: If continuous audio from a single station is ever partitioned across splits, the minimum required purge interval must separate the splits by at least the temporal reach of the feature extraction window and the 6-prediction smoothing buffer:
+  $$\text{Purge Gap} \ge T_{\text{span}} = W + (K - 1) \times H = 2.50\text{s} + (6 - 1) \times 0.75\text{s} = \mathbf{6.25\text{ seconds}}$$
+  A purge gap of $\ge 6.25\text{ seconds}$ mathematically guarantees that no raw audio sample present in any window of the training sequence can overlap with any window in the evaluation sequence.
 
 ---
 
@@ -334,6 +345,6 @@ graph TD
 1. **RadioTalk**: Corrected to reflect that it is an ASR transcript corpus; claim of downloadable 16kHz WAV training snippets removed.
 2. **AudioSet**: Documented exact `Jingle (music)` clip count (1,438 total clips; ~4.0 hours), YouTube-origin scraping limitations, and distinction between jingles and all ads.
 3. **rvdmaazen**: Marked strictly as UNVERIFIED as a public dataset and removed from recommendations.
-4. **Data Splits**: Fixed contradiction; adopted GroupKFold cross-validation grouped by station to prevent station-level and temporal leakage.
-5. **Copyright**: Removed blanket fair-use claims; documented Section 37 Indian broadcast rights, redistribution prohibitions, and need for legal review.
+4. **Data Splits & Purge Buffer Rigor**: Detailed 5-fold GroupKFold protocol across 5 stations per language (4 train, 1 test per fold), acknowledged small-sample variance, noted lack of class balance guarantee across folds, mandated reporting of fold station and class compositions, specified inner-loop hyperparameter tuning, noted that 20–50+ stations are needed for robust generalization, clarified that station-disjoint splits inherently prevent sample overlap (making arbitrary 30s buffers unjustified), and mathematically derived the $\ge 6.25\text{s}$ purge gap for within-station temporal splits.
+5. **Copyright & Legal Precision**: Cited Section 37(3)(c) and Section 52(1)(a)(i) of the Indian Copyright Act, 1957; clarified that fair dealing does not provide a blanket exemption for automated recording; refrained from offering legal advice or definitive legality claims; noted that feature matrices cannot be assumed non-reconstructible without testing due to phase reconstruction (Griffin-Lim) and neural vocoders; and stated that withholding raw audio does not eliminate all legal questions.
 6. **Languages**: Retracted generalizations comparing Western and Indian ad musicality; affirmed English and Hindi as separate evaluation groups and Tamil, Kannada, Punjabi strictly as conceptual UI placeholders.

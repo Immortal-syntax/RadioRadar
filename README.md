@@ -67,17 +67,18 @@ graph LR
 Detection is not instantaneous; the operational end-to-end latency consists of:
 1. **Audio Analysis Window**: 2.50 seconds of contiguous raw PCM audio per frame `[VERIFIED FACT]`.
 2. **Prediction Interval**: 0.75 seconds between inference steps (70% frame overlap) `[VERIFIED FACT]`.
-3. **Prediction Buffer Span**: 6-prediction buffer covers **6.25 seconds of continuous audio** across $3.75\text{s}$ of elapsed prediction steps `[VERIFIED FACT]`.
+3. **Prediction Buffer Span**: 6-prediction buffer covers **6.25 seconds of continuous audio** across $3.75\text{s}$ of elapsed prediction steps `[VERIFIED FACT]`. (Audio coverage exceeds elapsed prediction time because sliding windows overlap by 70%).
 4. **State Stabilization Delay**: 2.25 to 3.0 seconds of sustained consensus ($\ge 4$ agreeing frames) to prevent UI flickering `[ENGINEERING ESTIMATE]`.
-5. **Actual Detection Latency**: **~7.8 to 11.6+ seconds total** from broadcast transition to UI notification, accounting for stream buffering, ingestion pipes, and network transit `[UNMEASURED HYPOTHESIS]`.
+5. **Actual Detection Latency**: **~7.8 to 11.6+ seconds total** from broadcast transition to UI notification, accounting for stream buffering, ingestion pipes, and network transit `[UNMEASURED HYPOTHESIS until benchmarked]`.
 
 ---
 
 ## ⚖️ Legal, Copyright & Licensing Notes
 
-- **Reduced Redistribution Exposure**: Audio is not proxied, transcoded, or archived on RadioRadar servers; clients connect directly to public origin streams. However, this does not grant blanket legal immunity. Broadcaster terms of service, hotlinking restrictions, and broadcast reproduction rights (e.g. Section 37 of the Indian Copyright Act, 1957) apply.
-- **Dataset Redistribution Prohibition**: RadioRadar will never publicly redistribute raw recorded broadcast audio files. Only non-reconstructible numerical features and metadata may be shared for academic reproducibility.
+- **Reduced Redistribution Exposure**: Audio is not proxied, transcoded, or archived on RadioRadar servers; clients connect directly to public origin streams. However, this does not grant blanket legal immunity. Broadcaster terms of service, hotlinking restrictions, and broadcast reproduction rights (e.g. Section 37 of the Indian Copyright Act, 1957, particularly Section 37(3)(c)) apply. Section 52(1)(a)(i) statutory fair dealing for private/research use cannot be assumed to provide a blanket exemption for automated recording, and this documentation does not provide legal advice or definitive determinations of legality.
+- **Dataset Redistribution Prohibition & Feature Invertibility Nuance**: RadioRadar will never publicly redistribute raw recorded broadcast audio files. Furthermore, derived numerical feature matrices cannot be assumed to be definitively non-reconstructible without empirical verification, as phase reconstruction (Griffin-Lim) and neural vocoders (MelGAN/HiFi-GAN) can partially invert mel representations. Withholding raw audio does not eliminate all legal questions regarding broadcast fixation or data governance.
 - **Transformative Research**: Transient in-memory audio feature extraction is designed for analytical metadata generation. A formal legal review is required prior to commercial scaling.
+- **Deployment Constraints**: Designed for Render free tier (512 MB RAM ceiling, 0.1 vCPU CFS quota, 15-minute inactivity spin-down; Source: `https://render.com/docs/free`).
 - **Software License**: This open-source software is licensed under the [MIT License](LICENSE).
 
 ---
