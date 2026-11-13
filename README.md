@@ -6,11 +6,11 @@
 
 ## 🌟 Overview
 
-**RadioRadar** is an open-source platform that monitors live internet radio streams to detect commercial advertisements in near real-time. Built to run efficiently within free-tier resource constraints, RadioRadar implements a shared per-station monitoring architecture: multiple users listening to the same station share a single backend ingestion and inference worker, preventing duplicate processing and memory bloat.
+**RadioRadar** is an open-source platform designed to monitor live internet radio streams and detect commercial advertisements in near real-time. Built to explore resource-efficient audio processing on free-tier cloud infrastructure, RadioRadar implements a shared per-station monitoring architecture: multiple users monitoring the same station share a single backend ingestion and inference worker, eliminating redundant processing and network bandwidth.
 
 ### Key Capabilities
-- 🌐 **Global Station Catalog by Language**: Discover and filter internet radio streams categorized across global languages (English, Hindi, Spanish, French, German, and more).
-- 🎛️ **Multi-Stream Monitoring**: Monitor up to 3 stations simultaneously in a unified dashboard.
+- 🌐 **Global Station Catalog by Language**: Discover and filter internet radio streams categorized across global languages (English, Hindi, Spanish, French, German, and more) backed by a rebuildable cache.
+- 🎛️ **Multi-Stream Monitoring**: Support for selecting and monitoring up to 3 stations simultaneously (subject to empirical system resource benchmarking).
 - 🔄 **Shared Ingestion Architecture**: A single background worker serves all active listeners of a station, conserving CPU and bandwidth.
 - 📊 **Deterministic Monitoring States**:
   - 🔴 **Advertisement detected**
@@ -18,31 +18,31 @@
   - 🟡 **Analyzing**
   - 🟠 **Uncertain**
   - ⚪ **Unavailable**
-- 🎧 **Direct In-Browser Audio Player**: Stream public broadcast audio directly in your browser without proxying or caching copyrighted audio on the backend.
+- 🎧 **Direct In-Browser Audio Player**: Connect directly from the browser to public station streams, substantially reducing server redistribution exposure while respecting broadcaster endpoints.
 
 ---
 
 ## 📚 Architectural & Planning Documentation
 
-Before writing code, RadioRadar has undergone a rigorous architectural planning phase:
+Before writing code, RadioRadar has undergone a comprehensive architectural planning and feasibility audit:
 
-- 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md): Complete system blueprint, data flow diagrams, memory budgeting, FFmpeg ingestion pipeline, feature extraction engine, and WebSocket protocols.
-- 🗺️ [**ROADMAP.md**](./ROADMAP.md): Step-by-step development roadmap divided into independently testable milestones (M0 through M7) with MVP scope boundaries.
-- ⚠️ [**RISKS.md**](./RISKS.md): Brutally honest technical risk assessment covering Render 512MB RAM constraints, acoustic ML limitations, stream dropouts, dataset scarcity, and legal considerations.
+- 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md): Complete system blueprint, data flow diagrams, unverified resource estimates, FFmpeg ingestion pipeline, latency decomposition, and WebSocket protocols.
+- 🗺️ [**ROADMAP.md**](./ROADMAP.md): Step-by-step development roadmap divided into independently testable milestones (M0 through M7) with empirical measurement completion criteria.
+- ⚠️ [**RISKS.md**](./RISKS.md): Brutally realistic technical risk assessment covering Render 512MB RAM / 0.1 CPU constraints, acoustic ML ambiguity, stream dropouts, dataset scarcity, and legal/licensing considerations.
 
 ---
 
 ## 🛠️ Technology Stack & Feasibility Decisions
 
-| Layer | Selected Technology | Feasibility & Rationale |
+| Layer | Selected Technology | Feasibility Rationale & Operational Constraints |
 |---|---|---|
-| **Frontend** | React, Vite, Tailwind CSS, Lucide Icons | Fast, lightweight SPA with low client bundle footprint. |
-| **Backend** | Python 3.11, FastAPI, Uvicorn, AsyncIO | High-performance asynchronous API & WebSocket event bus. |
-| **Audio Ingestion** | FFmpeg Subprocess (PCM pipe) | Downsamples directly to 16kHz mono `f32le` ($64\text{ KB/s}$), avoiding memory spikes. |
-| **Feature Extraction** | Pure NumPy & SciPy.signal | **Replaced Librosa** to prevent 120MB+ cold-start RAM bloat and Numba overhead. |
-| **ML Inference** | Scikit-learn (Random Forest) + Hysteresis | Lightweight model ($<15\text{MB}$ RAM) combined with temporal smoothing to eliminate UI flickering. |
-| **Database** | SQLite with WAL mode | Zero-dependency, low-memory embedded storage for station directory. |
-| **Deployment** | Render Free Tier (Docker) | Engineered to operate strictly within the 512MB RAM ceiling under 3 active streams. |
+| **Frontend** | React, Vite, Tailwind CSS, Lucide Icons | Fast, lightweight SPA with minimal client bundle size and cold-start UX indicators. |
+| **Backend** | Python 3.11, FastAPI, Uvicorn, AsyncIO | High-performance asynchronous API & WebSocket event bus (single Uvicorn worker). |
+| **Audio Ingestion** | FFmpeg Subprocess (PCM pipe) | Downsamples directly to 16kHz mono `f32le` ($64\text{ KB/s}$); evaluated for 0.1 CPU subprocess overhead. |
+| **Feature Extraction** | Pure NumPy & SciPy.signal | **Replaced Librosa** to eliminate 120MB+ cold-start RAM bloat and Numba JIT compilation. |
+| **ML Inference** | Scikit-learn (Baseline Model) + Hysteresis | Lightweight initial baseline evaluated against dummy and linear models; multi-frame temporal smoothing. |
+| **Database** | SQLite (Rebuildable Cache, WAL mode) | Disposable local cache for station catalog; ephemeral on free-tier containers. |
+| **Deployment** | Render Free Tier (Docker) | Target: 512MB RAM, 0.1 CPU, 15m inactivity sleep, ~50-60s cold starts; subject to empirical benchmarks. |
 
 ---
 
@@ -52,7 +52,7 @@ Before writing code, RadioRadar has undergone a rigorous architectural planning 
 graph LR
     RadioStream[Live Radio Stream] -->|FFmpeg Ingestion| Worker[StationMonitorWorker]
     Worker -->|10s Ring Buffer| Features[NumPy Feature Extractor]
-    Features -->|MFCCs, RMS, ZCR| Classifier[Random Forest Classifier]
+    Features -->|MFCCs, RMS, ZCR| Classifier[Baseline Classifier]
     Classifier -->|Probabilities| Hysteresis[Hysteresis State Machine]
     Hysteresis -->|State Updates| StreamManager[StreamManager]
     StreamManager -->|WebSocket Pub/Sub| Frontend[React Web App]
@@ -60,12 +60,24 @@ graph LR
 
 ---
 
-## 📜 Development Status
+## ⏱️ Latency Budget Breakdown
 
-RadioRadar is currently in **Milestone 0 (Planning & Architecture)**. Application implementation will begin in **Milestone 1** following architectural approval.
+Detection is not instantaneous; the operational end-to-end latency consists of:
+1. **Audio Analysis Window**: 2.5 seconds of raw audio per frame.
+2. **Prediction Interval**: 0.75 seconds between inference steps.
+3. **State Stabilization Delay**: 3.0 to 4.5 seconds of sustained agreement to prevent UI flickering.
+4. **Actual Detection Latency**: **6 to 12+ seconds total** from broadcast transition to UI notification, accounting for stream buffering and network transit.
 
 ---
 
-## 📄 License
+## ⚖️ Legal, Copyright & Licensing Notes
 
-This project is licensed under the [MIT License](LICENSE).
+- **Reduced Redistribution Exposure**: Audio is not proxied, transcoded, or archived on RadioRadar servers; clients connect directly to public origin streams. However, this does not grant blanket legal immunity. Broadcaster terms of service, hotlinking restrictions, and local copyright regulations apply.
+- **Transformative Research**: Transient in-memory audio feature extraction is designed for analytical metadata generation. A formal legal review is required prior to commercial scaling.
+- **Software License**: This open-source software is licensed under the [MIT License](LICENSE).
+
+---
+
+## 📜 Development Status
+
+RadioRadar is currently in **Milestone 0 (Planning, Feasibility & Architecture Audit)**. Application implementation will begin in **Milestone 1** following architectural approval.
